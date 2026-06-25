@@ -99,6 +99,15 @@ interface MppChallengeBody {
 const DEFAULT_POLL_TIMEOUT_MS = 120_000;
 const POLL_INTERVAL_MS = 1_000;
 
+/**
+ * Complete a Machine Payments Protocol purchase flow for a single
+ * stellar_card-backed resource.
+ *
+ * The helper retrieves the 402 challenge, pays it with the SDK's
+ * existing Soroban wallet flow, retries the protected resource with an
+ * `Authorization: Payment` credential, and polls the receipt URL when
+ * fulfillment is asynchronous.
+ */
 export async function mppCharge(opts: MppChargeOpts): Promise<MppChargeResult> {
   const url = resolveUrl(opts);
   const fetchImpl: typeof fetch = opts._deps?.fetch ?? fetch;

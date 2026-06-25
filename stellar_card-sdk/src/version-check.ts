@@ -117,9 +117,12 @@ function printWarning(local: string, latest: string): void {
   }
 }
 
-/** Fire-and-forget update check. Returns immediately; the check runs
- *  in the background. Safe to call at CLI startup regardless of which
- *  subcommand is about to run. */
+/**
+ * Fire-and-forget npm update check for the CLI package.
+ *
+ * Returns immediately; the network work happens in the background and
+ * never blocks the calling command.
+ */
 export function checkForUpdates(): void {
   const local = readLocalVersion();
   if (!local) return;

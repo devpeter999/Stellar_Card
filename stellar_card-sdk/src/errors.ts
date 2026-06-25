@@ -269,11 +269,12 @@ export class NetworkError extends Stellar_CardError {
     reason: string,
     public readonly endpoint?: string,
     cause?: Error,
+    context?: ErrorContext,
   ) {
     const message =
       `Network error communicating with ${endpoint || 'API'}: ${reason}. ` +
       'Check your internet connection and try again.';
-    super(message, 'network_error', 0, { endpoint, reason }, { cause });
+    super(message, 'network_error', 0, { endpoint, reason }, { cause, ...context });
     this.name = 'NetworkError';
     Object.setPrototypeOf(this, new.target.prototype);
   }
@@ -284,12 +285,15 @@ export class TimeoutError extends Stellar_CardError {
   constructor(
     operation: string,
     timeoutMs: number,
+    context?: ErrorContext,
   ) {
     super(
       `Operation "${operation}" timed out after ${timeoutMs}ms. ` +
         'Network may be slow — try again or increase timeout.',
       'timeout',
       0,
+      undefined,
+      context,
     );
     this.name = 'TimeoutError';
     Object.setPrototypeOf(this, new.target.prototype);
@@ -319,13 +323,14 @@ export class SorobanRpcError extends Stellar_CardError {
     reason: string,
     public readonly rpcUrl?: string,
     cause?: Error,
+    context?: ErrorContext,
   ) {
     super(
       `Soroban RPC error: ${reason}. Check the RPC endpoint or try a different network.`,
       'soroban_rpc_error',
       0,
       { rpcUrl },
-      { cause },
+      { cause, ...context },
     );
     this.name = 'SorobanRpcError';
     Object.setPrototypeOf(this, new.target.prototype);
@@ -338,13 +343,14 @@ export class HorizonError extends Stellar_CardError {
     reason: string,
     public readonly endpoint?: string,
     cause?: Error,
+    context?: ErrorContext,
   ) {
     super(
       `Horizon error: ${reason}. The Stellar network may be temporarily unavailable.`,
       'horizon_error',
       0,
       { endpoint },
-      { cause },
+      { cause, ...context },
     );
     this.name = 'HorizonError';
     Object.setPrototypeOf(this, new.target.prototype);
@@ -357,6 +363,7 @@ export class WalletError extends Stellar_CardError {
     reason: string,
     public readonly operation?: string,
     cause?: Error,
+    context?: ErrorContext,
   ) {
     super(
       `Wallet error: ${reason}. ` +
@@ -364,7 +371,7 @@ export class WalletError extends Stellar_CardError {
       'wallet_error',
       0,
       { operation },
-      { cause },
+      { cause, ...context },
     );
     this.name = 'WalletError';
     Object.setPrototypeOf(this, new.target.prototype);
@@ -451,11 +458,10 @@ export function wrapNetworkError(
     err instanceof Error
       ? err.message
       : 'Unknown network error';
-  return new NetworkError(message, endpoint, {
+  return new NetworkError(message, endpoint, err instanceof Error ? err : undefined, {
     recoveryHint:
       'Check your internet connection, firewall rules, and that the endpoint is reachable.',
     operation,
-    cause: err instanceof Error ? err : undefined,
   });
 }
 
@@ -467,14 +473,10 @@ export function wrapTimeoutError(
   timeoutMs: number,
   cause?: Error,
 ): TimeoutError {
-  const err = new TimeoutError(operation, timeoutMs);
-  if (cause) {
-    err['context'] = {
-      cause,
-      recoveryHint: `Increase timeoutMs above ${timeoutMs}ms if operations frequently take longer.`,
-    };
-  }
-  return err;
+  return new TimeoutError(operation, timeoutMs, {
+    cause,
+    recoveryHint: `Increase timeoutMs above ${timeoutMs}ms if operations frequently take longer.`,
+  });
 }
 
 /**
@@ -486,12 +488,11 @@ export function wrapSorobanError(
   operation?: string,
 ): SorobanRpcError {
   const message = err instanceof Error ? err.message : String(err);
-  return new SorobanRpcError(message, rpcUrl, {
+  return new SorobanRpcError(message, rpcUrl, err instanceof Error ? err : undefined, {
     operation,
     recoveryHint: rpcUrl
       ? `Try a different Soroban RPC endpoint or check ${rpcUrl} status.`
       : 'Configure a custom sorobanRpcUrl if using a private endpoint.',
-    cause: err instanceof Error ? err : undefined,
   });
 }
 
@@ -504,10 +505,9 @@ export function wrapHorizonError(
   operation?: string,
 ): HorizonError {
   const message = err instanceof Error ? err.message : String(err);
-  return new HorizonError(message, endpoint, {
+  return new HorizonError(message, endpoint, err instanceof Error ? err : undefined, {
     operation,
     recoveryHint: 'The Stellar Horizon API may be rate-limited; try again in a few seconds.',
-    cause: err instanceof Error ? err : undefined,
   });
 }
 

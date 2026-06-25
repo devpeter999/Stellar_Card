@@ -237,7 +237,7 @@ describe('MCP Server', () => {
     it('returns Stellar address for agent wallet', () => {
       const input = { agent_name: 'my-agent' };
       const result = {
-        address: 'GBRPYHIL2CI3WHZDTOOQFC6EB4NCCCEFVPXF2GYXBG4FDGBIYWXUPQM',
+        address: 'GCY5PWJB77OWDLLJ7QLW3KZUKFQSNGZVAOCP4XEWIUORVCKVJBDNR5FK',
       };
       expect(result.address).toMatch(/^G/);
       expect(result.address.length).toBe(56);

@@ -647,6 +647,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   };
 });
 
+/** Start the stdio-based MCP server exported by the SDK. */
 export async function startMcpServer(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
