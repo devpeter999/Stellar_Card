@@ -1,0 +1,103 @@
+name: Test & Lint
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'feature/**'
+    paths:
+      - 'stellar_card-sdk/**'
+      - '.github/workflows/test.yml'
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'stellar_card-sdk/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node-version: ['18.x', '20.x', '22.x']
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: 'stellar_card-sdk/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: stellar_card-sdk
+        run: npm ci
+
+      - name: Lint
+        working-directory: stellar_card-sdk
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Type check
+        working-directory: stellar_card-sdk
+        run: npm run typecheck
+
+      - name: Run tests
+        working-directory: stellar_card-sdk
+        run: npm run test
+        env:
+          CARDS402_ALLOW_INSECURE_BASE_URL: '1'
+
+      - name: Build
+        working-directory: stellar_card-sdk
+        run: npm run build
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '20.x'
+        with:
+          files: ./stellar_card-sdk/coverage/coverage-final.json
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+  type-matrix:
+    name: Type Compatibility
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        typescript-version: ['5.0.x', '5.1.x', '5.2.x', '5.3.x']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+          cache-dependency-path: 'stellar_card-sdk/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: stellar_card-sdk
+        run: npm ci
+
+      - name: Install TypeScript version
+        working-directory: stellar_card-sdk
+        run: npm install --save-dev typescript@${{ matrix.typescript-version }}
+
+      - name: Type check
+        working-directory: stellar_card-sdk
+        run: npm run typecheck

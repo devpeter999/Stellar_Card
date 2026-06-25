@@ -57,6 +57,20 @@ export {
   OrderFailedError,
   WaitTimeoutError,
   ResumableError,
+  NetworkError,
+  TimeoutError,
+  ValidationError,
+  SorobanRpcError,
+  HorizonError,
+  WalletError,
+  parseApiError,
+  wrapError,
+  wrapNetworkError,
+  wrapTimeoutError,
+  wrapSorobanError,
+  wrapHorizonError,
+  wrapWalletError,
+  type ErrorContext,
 } from './errors';
 
 export { InsufficientFeeError } from './soroban';
