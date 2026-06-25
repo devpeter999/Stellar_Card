@@ -91,3 +91,14 @@ export type { MppChargeOpts, MppChargeResult } from './mpp';
 
 export { loadStellar_CardConfig, saveStellar_CardConfig, resolveCredentials } from './config';
 export type { Stellar_CardConfig } from './config';
+
+export { paginate, iteratePages } from './pagination';
+export type {
+  PaginationCursor,
+  PaginatedResult,
+  PaginateOptions,
+  IteratePagesOptions,
+} from './pagination';
+
+export { resolveNetworkConfig, getDefaultSorobanRpcUrl, getDefaultHorizonUrl } from './network';
+export type { NetworkConfig } from './network';

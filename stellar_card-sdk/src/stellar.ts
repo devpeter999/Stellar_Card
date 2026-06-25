@@ -96,6 +96,8 @@ export interface PayOpts {
   paymentAsset?: 'usdc' | 'xlm';
   networkPassphrase?: string;
   sorobanRpcUrl?: string;
+  /** Override the Horizon REST API URL. Defaults to the public endpoint for the selected network. */
+  horizonUrl?: string;
 }
 
 /**
@@ -111,6 +113,7 @@ export async function payViaContract(opts: PayOpts): Promise<string> {
     paymentAsset = 'usdc',
     networkPassphrase = Networks.PUBLIC,
     sorobanRpcUrl,
+    horizonUrl,
   } = opts;
 
   if (!StrKey.isValidContract(payment.contract_id)) {
@@ -120,6 +123,7 @@ export async function payViaContract(opts: PayOpts): Promise<string> {
   const keypair = Keypair.fromSecret(walletSecret);
   const { fn, amountDecimal } = selectContractCall(payment, paymentAsset);
   const amountStroops = decimalToStroops(amountDecimal);
+  const resolvedHorizonUrl = horizonUrl ?? getHorizonUrl(networkPassphrase);
 
   // Fee retry: if the network rejects the fee, rebuild with the
   // required fee as the floor. At most one retry — the network's
@@ -138,7 +142,7 @@ export async function payViaContract(opts: PayOpts): Promise<string> {
     });
     tx.sign(keypair);
     try {
-      return await submitSorobanTx(tx, server, getHorizonUrl(networkPassphrase));
+      return await submitSorobanTx(tx, server, resolvedHorizonUrl);
     } catch (err) {
       if (err instanceof InsufficientFeeError && attempt === 0) {
         fee = err.requiredFee;
@@ -163,6 +167,8 @@ export async function purchaseCard(opts: {
   baseUrl?: string;
   networkPassphrase?: string;
   sorobanRpcUrl?: string;
+  /** Override the Horizon REST API URL used during contract submission. */
+  horizonUrl?: string;
   resume?: { orderId: string; payment: PaymentInstructions };
   waitForCardOpts?: { timeoutMs?: number; intervalMs?: number };
 }): Promise<CardDetails & { order_id: string }> {
@@ -193,6 +199,7 @@ export async function purchaseCard(opts: {
     paymentAsset,
     networkPassphrase: opts.networkPassphrase,
     sorobanRpcUrl: opts.sorobanRpcUrl,
+    horizonUrl: opts.horizonUrl,
   });
 
   const card = await client.waitForCard(orderId, opts.waitForCardOpts);

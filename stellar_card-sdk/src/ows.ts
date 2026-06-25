@@ -362,6 +362,8 @@ export interface PayViaContractOwsOpts {
   vaultPath?: string;
   networkPassphrase?: string;
   sorobanRpcUrl?: string;
+  /** Override the Horizon REST API URL used during contract submission. */
+  horizonUrl?: string;
 }
 
 /**
@@ -420,6 +422,7 @@ export async function payViaContractOWS(
     vaultPath,
     networkPassphrase = Networks.PUBLIC,
     sorobanRpcUrl,
+    horizonUrl,
   } = opts;
 
   // Resolve injectable deps — each defaults to the module-level
@@ -473,8 +476,9 @@ export async function payViaContractOWS(
 
     signTx(tx, walletName, publicKey, passphrase, vaultPath);
 
+    const resolvedHorizonUrl = horizonUrl ?? getHorizonUrl(networkPassphrase);
     try {
-      return await submitTx(tx, server, getHorizonUrl(networkPassphrase));
+      return await submitTx(tx, server, resolvedHorizonUrl);
     } catch (err) {
       lastErr = err;
       // Fee too low — retry with the network's required fee as floor.
@@ -562,6 +566,10 @@ export interface PurchaseCardOwsOpts {
         txHash?: string;
         phase?: 'unpaid' | 'paid';
       };
+  /** Override the Soroban RPC URL used during contract submission. */
+  sorobanRpcUrl?: string;
+  /** Override the Horizon REST API URL used during contract submission. */
+  horizonUrl?: string;
   /** Tune the card-ready poll. Default: { timeoutMs: 300_000, intervalMs: 3_000 }. */
   waitForCardOpts?: { timeoutMs?: number; intervalMs?: number };
 }
@@ -713,6 +721,8 @@ export async function purchaseCardOWS(
         passphrase: opts.passphrase,
         vaultPath: opts.vaultPath,
         networkPassphrase: opts.networkPassphrase,
+        sorobanRpcUrl: opts.sorobanRpcUrl,
+        horizonUrl: opts.horizonUrl,
       });
     } catch (err) {
       // submitSorobanTx attaches `txHash` to its error when the envelope
