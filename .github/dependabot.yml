@@ -1,0 +1,66 @@
+version: 2
+updates:
+  # npm dependencies
+  - package-ecosystem: npm
+    directory: '/stellar_card-sdk'
+    schedule:
+      interval: weekly
+      day: monday
+      time: '03:00'
+      timezone: UTC
+    open-pull-requests-limit: 5
+    reviewers:
+      - 'devpeter999'
+    labels:
+      - 'dependencies'
+      - 'sdk'
+    commit-message:
+      prefix: 'chore'
+      prefix-scope: 'deps'
+      include: 'scope'
+    pull-request-branch-name:
+      separator: '/'
+    rebase-strategy: 'auto'
+    allow:
+      - dependency-type: direct
+      - dependency-type: indirect
+    ignore:
+      # Ignore major version bumps for certain packages (manual review recommended)
+      - dependency-name: '@stellar/stellar-sdk'
+        update-types:
+          - 'version-update:semver-major'
+      - dependency-name: 'typescript'
+        update-types:
+          - 'version-update:semver-major'
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: weekly
+      day: monday
+      time: '04:00'
+      timezone: UTC
+    open-pull-requests-limit: 5
+    reviewers:
+      - 'devpeter999'
+    labels:
+      - 'ci/cd'
+    commit-message:
+      prefix: 'ci'
+      include: 'scope'
+
+  # Docker (if used in future)
+  - package-ecosystem: docker
+    directory: '/'
+    schedule:
+      interval: weekly
+      day: monday
+      time: '05:00'
+      timezone: UTC
+    open-pull-requests-limit: 3
+    reviewers:
+      - 'devpeter999'
+    labels:
+      - 'docker'
+      - 'infra'
