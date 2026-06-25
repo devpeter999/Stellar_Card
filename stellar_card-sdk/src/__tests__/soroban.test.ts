@@ -4,6 +4,7 @@
 // and RPC finalization polling.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { decimalToStroops } from '../soroban';
 
 // We'll test the exported functions and error types
 describe('Soroban contract operations', () => {
@@ -15,7 +16,7 @@ describe('Soroban contract operations', () => {
     it('accepts payment instructions and account info', () => {
       const payment = {
         type: 'soroban_contract' as const,
-        contract_id: 'CARDS402CONTRACTIDXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+        contract_id: 'C' + 'A'.repeat(55),
         order_id: 'ord_123',
         usdc: { amount: '10.00', asset: 'USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN' },
       };
@@ -60,26 +61,19 @@ describe('Soroban contract operations', () => {
 
   describe('decimalToStroops', () => {
     it('converts decimal USDC to stroops (7 decimals)', () => {
-      // USDC uses 7 decimal places: 1.23 USDC = 12300000 stroops
-      const usdc = '1.23';
-      const stroops = 12300000;
-      expect(stroops).toBe(usdc.replace('.', '').padEnd(10, '0') as any);
+      expect(decimalToStroops('1.23')).toBe(12300000n);
     });
 
     it('handles whole numbers without decimal point', () => {
-      const stroops = 10000000; // 1 USDC
-      expect(stroops).toBeGreaterThan(0);
+      expect(decimalToStroops('1')).toBe(10000000n);
     });
 
     it('handles fractional amounts', () => {
-      const usdc = '0.01'; // 1 cent
-      const stroops = 100000;
-      expect(stroops).toBeGreaterThan(0);
+      expect(decimalToStroops('0.01')).toBe(100000n);
     });
 
     it('rejects invalid amounts', () => {
-      const invalid = 'not a number';
-      expect(() => Number(invalid)).toThrow();
+      expect(() => decimalToStroops('not a number')).toThrow();
     });
   });
 

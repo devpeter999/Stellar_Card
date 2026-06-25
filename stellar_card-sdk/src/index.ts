@@ -1,6 +1,7 @@
 export { Stellar_CardClient } from './client';
 export type {
   OrderOptions,
+  CreateOrderOptions,
   OrderResponse,
   OrderStatus,
   OrderListItem,
@@ -9,7 +10,17 @@ export type {
   PaymentInstructions,
   Budget,
   UsageSummary,
+  RetryOptions,
+  WaitForCardOptions,
+  ListOrdersOptions,
+  ListOrdersPage,
+  IterateOrdersOptions,
+  ReportStatusOptions,
+  StellarCardClientOptions,
 } from './client';
+
+export { calculateExponentialBackoffDelay, parseRetryAfterMs, sleep } from './retry';
+export type { ExponentialBackoffDelayOptions } from './retry';
 
 export {
   createWallet,

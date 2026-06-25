@@ -32,6 +32,8 @@ describe('SDK integration (sandbox mode)', () => {
     expect(typeof client.getOrder).toBe('function');
     expect(typeof client.waitForCard).toBe('function');
     expect(typeof client.listOrders).toBe('function');
+    expect(typeof client.listOrdersPage).toBe('function');
+    expect(typeof client.iterateOrders).toBe('function');
     expect(typeof client.getUsage).toBe('function');
   });
 

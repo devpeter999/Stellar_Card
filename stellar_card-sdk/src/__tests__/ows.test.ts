@@ -12,6 +12,9 @@ import {
   getOWSBalance,
 } from '../ows';
 
+const VALID_STELLAR_SECRET = 'SBLJZDWSDV4BCYT6BUGIJBVX65LE34NLVTL7SR2L2FHUGMFQ7VYFJUMV';
+const VALID_STELLAR_PUBLIC_KEY = 'GCY5PWJB77OWDLLJ7QLW3KZUKFQSNGZVAOCP4XEWIUORVCKVJBDNR5FK';
+
 // Mock OWS core library
 vi.mock('@ctx.com/stellar-ows-core', () => ({
   createWallet: vi.fn(() => ({
@@ -20,7 +23,7 @@ vi.mock('@ctx.com/stellar-ows-core', () => ({
     accounts: [
       {
         chainId: 'stellar-mainnet',
-        address: 'GBRPYHIL2CI3WHZDTOOQFC6EB4NCCCEFVPXF2GYXBG4FDGBIYWXUPQM',
+        address: VALID_STELLAR_PUBLIC_KEY,
       },
     ],
   })),
@@ -30,7 +33,7 @@ vi.mock('@ctx.com/stellar-ows-core', () => ({
     accounts: [
       {
         chainId: 'stellar-mainnet',
-        address: 'GBRPYHIL2CI3WHZDTOOQFC6EB4NCCCEFVPXF2GYXBG4FDGBIYWXUPQM',
+        address: VALID_STELLAR_PUBLIC_KEY,
       },
     ],
   })),
@@ -40,7 +43,7 @@ vi.mock('@ctx.com/stellar-ows-core', () => ({
     accounts: [
       {
         chainId: 'stellar-mainnet',
-        address: 'GBRPYHIL2CI3WHZDTOOQFC6EB4NCCCEFVPXF2GYXBG4FDGBIYWXUPQM',
+        address: VALID_STELLAR_PUBLIC_KEY,
       },
     ],
   })),
@@ -108,7 +111,7 @@ describe('importStellarKey', () => {
   });
 
   it('imports a Stellar secret key into OWS wallet', () => {
-    const secretKey = 'SBCD34EHZV2GX46PCWMJS3K5ICKW2FLJFHWVBSKTXZF2HXPNPG3JWUD';
+    const secretKey = VALID_STELLAR_SECRET;
     const result = importStellarKey('imported-wallet', secretKey);
     expect(result).toHaveProperty('walletId');
     expect(result).toHaveProperty('publicKey');
@@ -116,12 +119,17 @@ describe('importStellarKey', () => {
   });
 
   it('accepts optional passphrase', () => {
-    const result = importStellarKey('imported-wallet', 'SBCD...', 'passphrase');
+    const result = importStellarKey('imported-wallet', VALID_STELLAR_SECRET, 'passphrase');
     expect(result.publicKey).toMatch(/^G/);
   });
 
   it('accepts custom vaultPath', () => {
-    const result = importStellarKey('imported-wallet', 'SBCD...', undefined, '/data/vault');
+    const result = importStellarKey(
+      'imported-wallet',
+      VALID_STELLAR_SECRET,
+      undefined,
+      '/data/vault',
+    );
     expect(result.publicKey).toMatch(/^G/);
   });
 });
@@ -140,7 +148,7 @@ describe('getOWSPublicKey', () => {
 
   it('returns G-address format', () => {
     const address = getOWSPublicKey('test-agent');
-    expect(address).toMatch(/^GBRI/); // Example of actual format
+    expect(address).toMatch(/^G[A-Z2-7]{55}$/);
   });
 });
 

@@ -309,9 +309,124 @@ describe('Stellar_CardClient.listOrders', () => {
     expect(orders).toEqual([]);
   });
 
+  it('rejects invalid pagination arguments', async () => {
+    await expect(client().listOrders({ limit: 0 })).rejects.toThrow('Validation error');
+    await expect(client().listOrders({ offset: -1 })).rejects.toThrow('Validation error');
+  });
+
   it('throws on error status', async () => {
     mockFetch(401, { error: 'invalid_api_key' });
     await expect(client().listOrders()).rejects.toThrow();
+  });
+});
+
+// ── listOrdersPage / iterateOrders ───────────────────────────────────────────
+
+describe('Stellar_CardClient pagination helpers', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns page metadata and probes one extra row', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [
+        {
+          id: 'ord_1',
+          status: 'pending_payment',
+          amount_usdc: '10.00',
+          payment_asset: 'usdc',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+        },
+        {
+          id: 'ord_2',
+          status: 'delivered',
+          amount_usdc: '10.00',
+          payment_asset: 'usdc',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+        },
+        {
+          id: 'ord_3',
+          status: 'delivered',
+          amount_usdc: '20.00',
+          payment_asset: 'xlm',
+          created_at: '2025-01-01T00:00:00Z',
+          updated_at: '2025-01-01T00:00:00Z',
+        },
+      ],
+    });
+    global.fetch = fetchMock;
+
+    const page = await client().listOrdersPage({ limit: 2, offset: 4 });
+    expect(page.items.map((item) => item.id)).toEqual(['ord_1', 'ord_2']);
+    expect(page.hasMore).toBe(true);
+    expect(page.nextOffset).toBe(6);
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    const parsed = new URL(url);
+    expect(parsed.searchParams.get('limit')).toBe('3');
+    expect(parsed.searchParams.get('offset')).toBe('4');
+  });
+
+  it('iterates across pages and honours maxItems', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => [
+          {
+            id: 'ord_1',
+            status: 'pending_payment',
+            amount_usdc: '10.00',
+            payment_asset: 'usdc',
+            created_at: '2025-01-01T00:00:00Z',
+            updated_at: '2025-01-01T00:00:00Z',
+          },
+          {
+            id: 'ord_2',
+            status: 'delivered',
+            amount_usdc: '10.00',
+            payment_asset: 'usdc',
+            created_at: '2025-01-01T00:00:00Z',
+            updated_at: '2025-01-01T00:00:00Z',
+          },
+          {
+            id: 'ord_3',
+            status: 'ready',
+            amount_usdc: '12.00',
+            payment_asset: 'xlm',
+            created_at: '2025-01-01T00:00:00Z',
+            updated_at: '2025-01-01T00:00:00Z',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => [
+          {
+            id: 'ord_3',
+            status: 'ready',
+            amount_usdc: '12.00',
+            payment_asset: 'xlm',
+            created_at: '2025-01-01T00:00:00Z',
+            updated_at: '2025-01-01T00:00:00Z',
+          },
+        ],
+      });
+    global.fetch = fetchMock;
+
+    const seen: string[] = [];
+    for await (const order of client().iterateOrders({ limit: 2, maxItems: 3 })) {
+      seen.push(order.id);
+    }
+
+    expect(seen).toEqual(['ord_1', 'ord_2', 'ord_3']);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -350,5 +465,41 @@ describe('Stellar_CardClient.getUsage', () => {
   it('throws on error status', async () => {
     mockFetch(401, {});
     await expect(client().getUsage()).rejects.toThrow();
+  });
+
+  it('honours Retry-After headers on 429 responses', async () => {
+    vi.useFakeTimers();
+    const origFetch = globalThis.fetch;
+    let attempts = 0;
+    globalThis.fetch = vi.fn(async () => {
+      attempts++;
+      if (attempts === 1) {
+        return new Response('', {
+          status: 429,
+          headers: { 'Retry-After': '2' },
+        });
+      }
+      return new Response(JSON.stringify(USAGE), { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      const c = new Stellar_CardClient({
+        apiKey: 'stellar_card_test_key',
+        baseUrl: 'http://localhost:3000/v1',
+        retry: { attempts: 1, baseDelayMs: 10, maxDelayMs: 20 },
+      });
+      const pending = c.getUsage();
+
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(attempts).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      const usage = await pending;
+      expect(attempts).toBe(2);
+      expect(usage.api_key_id).toBe('key_1');
+    } finally {
+      globalThis.fetch = origFetch;
+      vi.useRealTimers();
+    }
   });
 });
