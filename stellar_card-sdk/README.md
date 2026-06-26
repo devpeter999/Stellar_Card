@@ -89,6 +89,34 @@ const card = await client.waitForCard(order.order_id, { timeoutMs: 120000 });
 console.log(card.number, card.cvv, card.expiry);
 ```
 
+## Pagination helpers
+
+```typescript
+const firstPage = await client.listOrdersPage({ status: 'delivered', limit: 25 });
+console.log(firstPage.items.length, firstPage.hasMore, firstPage.nextOffset);
+
+for await (const order of client.iterateOrders({ status: 'delivered', limit: 50, maxItems: 200 })) {
+  console.log(order.id, order.status);
+}
+```
+
+`listOrdersPage` adds continuation metadata on top of the API's bare array response, and `iterateOrders` streams through pages one batch at a time so you do not have to manage offsets manually.
+
+## Retry tuning
+
+```typescript
+const client = new Stellar_CardClient({
+  apiKey: process.env.CARDS402_API_KEY!,
+  retry: {
+    attempts: 4,
+    baseDelayMs: 250,
+    maxDelayMs: 4000,
+  },
+});
+```
+
+The SDK uses exponential backoff with full jitter for transient API failures and honors `Retry-After` headers when the backend asks clients to slow down.
+
 ## MCP server — for Claude Desktop, Cursor, and other MCP clients
 
 Add to your client's `mcpServers` config:

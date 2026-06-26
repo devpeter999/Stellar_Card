@@ -1,6 +1,7 @@
 export { Stellar_CardClient } from './client';
 export type {
   OrderOptions,
+  CreateOrderOptions,
   OrderResponse,
   OrderStatus,
   OrderListItem,
@@ -9,7 +10,17 @@ export type {
   PaymentInstructions,
   Budget,
   UsageSummary,
+  RetryOptions,
+  WaitForCardOptions,
+  ListOrdersOptions,
+  ListOrdersPage,
+  IterateOrdersOptions,
+  ReportStatusOptions,
+  StellarCardClientOptions,
 } from './client';
+
+export { calculateExponentialBackoffDelay, parseRetryAfterMs, sleep, withRetry } from './retry';
+export type { ExponentialBackoffDelayOptions, WithRetryOptions } from './retry';
 
 export {
   createWallet,
@@ -57,6 +68,20 @@ export {
   OrderFailedError,
   WaitTimeoutError,
   ResumableError,
+  NetworkError,
+  TimeoutError,
+  ValidationError,
+  SorobanRpcError,
+  HorizonError,
+  WalletError,
+  parseApiError,
+  wrapError,
+  wrapNetworkError,
+  wrapTimeoutError,
+  wrapSorobanError,
+  wrapHorizonError,
+  wrapWalletError,
+  type ErrorContext,
 } from './errors';
 
 export { InsufficientFeeError } from './soroban';
@@ -66,3 +91,72 @@ export type { MppChargeOpts, MppChargeResult } from './mpp';
 
 export { loadStellar_CardConfig, saveStellar_CardConfig, resolveCredentials } from './config';
 export type { Stellar_CardConfig } from './config';
+
+export { paginate, iteratePages } from './pagination';
+export type {
+  PaginationCursor,
+  PaginatedResult,
+  PaginateOptions,
+  IteratePagesOptions,
+} from './pagination';
+
+export {
+  resolveNetworkConfig,
+  getDefaultSorobanRpcUrl,
+  getDefaultHorizonUrl,
+  createCustomNetworkConfig,
+  validateRpcEndpoint,
+} from './network';
+export type {
+  NetworkConfig,
+  RpcEndpointConfig,
+  ResolvedRpcEndpoint,
+  ResolvedNetworkConfig,
+} from './network';
+
+// Export comprehensive type definitions
+export type {
+  NetworkType,
+  RpcEndpoint,
+  ExtendedNetworkConfig,
+  HttpMethod,
+  HttpHeaders,
+  HttpRequestOptions,
+  HttpResponse,
+  WalletKeypair,
+  OWSWalletMetadata,
+  TransactionSimulation,
+  TransactionResult,
+  PaymentAsset,
+  OrderCreationParams,
+  PaymentQuote,
+  ExtendedPaymentInstructions,
+  DetailedOrderPhase,
+  OrderStatusHistory,
+  ExtendedOrderStatus,
+  DetailedBudget,
+  OrderStatistics,
+  ExtendedUsageSummary,
+  ErrorSeverity,
+  ExtendedErrorContext,
+  RetryStrategy,
+  SortDirection,
+  SortOptions,
+  FilterOperator,
+  FilterCondition,
+  AdvancedListOptions,
+  DeepRequired,
+  DeepPartial,
+  KeysOfType,
+  AsyncFunction,
+  Callback,
+  EventEmitter,
+} from './types';
+
+export {
+  isPaymentAsset,
+  isOrderPhase,
+  isNetworkType,
+  hasErrorCode,
+  isRetryableError,
+} from './types';

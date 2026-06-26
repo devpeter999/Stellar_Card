@@ -1,0 +1,166 @@
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - 'sdk-v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 0.5.0)'
+        required: false
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish SDK to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+          cache-dependency-path: 'stellar_card-sdk/package-lock.json'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        working-directory: stellar_card-sdk
+        run: npm ci
+
+      - name: Lint
+        working-directory: stellar_card-sdk
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Type check
+        working-directory: stellar_card-sdk
+        run: npm run typecheck
+
+      - name: Run tests
+        working-directory: stellar_card-sdk
+        run: npm run test
+        env:
+          CARDS402_ALLOW_INSECURE_BASE_URL: '1'
+
+      - name: Build
+        working-directory: stellar_card-sdk
+        run: npm run build
+
+      - name: Extract version from tag or input
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${{ github.ref }}"
+            VERSION="${VERSION#refs/tags/sdk-v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          if [[ -z "$VERSION" ]]; then
+            VERSION=$(node -e "console.log(require('./stellar_card-sdk/package.json').version)")
+            echo "No version supplied — defaulting to package.json version: $VERSION"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Verify version matches package.json
+        working-directory: stellar_card-sdk
+        run: |
+          PKG_VERSION=$(node -e "console.log(require('./package.json').version)")
+          INPUT_VERSION="${{ steps.version.outputs.version }}"
+          if [[ "$PKG_VERSION" != "$INPUT_VERSION" ]]; then
+            echo "::error::Version mismatch: package.json has $PKG_VERSION but tag/input specifies $INPUT_VERSION"
+            exit 1
+          fi
+          echo "Version verified: $PKG_VERSION"
+
+      - name: Create release notes
+        id: notes
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ -f stellar_card-sdk/CHANGELOG.md ]]; then
+            CHANGELOG_SECTION=$(sed -n "/^## \[$VERSION\]/,/^## \[/p" stellar_card-sdk/CHANGELOG.md | head -n -1)
+          else
+            CHANGELOG_SECTION="Release v${VERSION}"
+          fi
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG_SECTION" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Publish to npm
+        working-directory: stellar_card-sdk
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: sdk-v${{ steps.version.outputs.version }}
+          release_name: SDK v${{ steps.version.outputs.version }}
+          body: ${{ steps.notes.outputs.notes }}
+          draft: false
+          prerelease: false
+
+      - name: Comment on related issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = '${{ steps.version.outputs.version }}';
+            const message = `✅ Published to npm as \`v${version}\`. Install with:\n\`\`\`\nnpm install stellar_card@${version}\n\`\`\``;
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed',
+              per_page: 20,
+            });
+            for (const pr of prs) {
+              if (pr.body && pr.body.includes(`v${version}`)) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  body: message,
+                });
+              }
+            }
+
+  notify:
+    name: Notify Slack
+    runs-on: ubuntu-latest
+    needs: publish
+    if: ${{ needs.publish.result == 'success' }}
+    steps:
+      - uses: slackapi/slack-github-action@v2
+        if: ${{ env.SLACK_WEBHOOK_URL != '' }}
+        with:
+          payload: |
+            {
+              "text": "SDK v${{ needs.publish.outputs.version }} published to npm",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*stellar_card SDK Released*\nVersion: v${{ needs.publish.outputs.version }}\n<https://www.npmjs.com/package/stellar_card|View on npm>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

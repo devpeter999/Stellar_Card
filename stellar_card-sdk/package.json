@@ -17,15 +17,29 @@
       "import": "./dist/esm/index.js",
       "require": "./dist/index.js"
     },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js",
+      "require": "./dist/browser.js"
+    },
     "./mcp": {
       "types": "./dist/mcp.d.ts",
       "import": "./dist/mcp.js",
       "require": "./dist/mcp.js"
     }
   },
+  "sideEffects": false,
   "browser": {
-    "./dist/config.js": "./dist/config.browser.js",
-    "./dist/esm/config.js": "./dist/esm/config.browser.js"
+    "./dist/config.js": false,
+    "./dist/ows.js": false,
+    "./dist/cli.js": false,
+    "./dist/commands/onboard.js": false,
+    "./dist/commands/purchase.js": false,
+    "./dist/commands/wallet.js": false,
+    "fs": false,
+    "path": false,
+    "os": false,
+    "crypto": false
   },
   "bin": {
     "stellar_card": "./dist/cli.js"
@@ -33,7 +47,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc && tsc -p tsconfig.esm.json",

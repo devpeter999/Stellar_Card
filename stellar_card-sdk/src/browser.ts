@@ -1,24 +1,20 @@
-// Browser-safe entry point for the stellar_card SDK.
-//
-// Only exports modules that are safe to use in browser environments:
-//   - Stellar_CardClient: HTTP API client (uses fetch / Web Crypto / SSE)
-//   - Error classes: pure-JS typed errors with no platform dependencies
-//
-// Intentionally excluded (Node.js / native-only):
-//   - config.ts     — uses fs, path, os, crypto for ~/.stellar_card/config.json
-//   - stellar.ts    — Horizon RPC helpers, heavy stellar-sdk surface area
-//   - ows.ts        — @ctx.com/stellar-ows-core has native Linux/Darwin binaries
-//   - soroban.ts    — pulled in transitively by stellar.ts / ows.ts
-//   - mpp.ts        — depends on ows.ts (payViaContractOWS)
-//   - mcp.ts        — MCP server uses Node.js stdio transport
-//   - cli.ts        — CLI uses process.argv / readline / Node.js I/O
-//
-// Browser consumers pass credentials directly to the constructor:
-//   const client = new Stellar_CardClient({ apiKey: '...', baseUrl: '...' });
+/**
+ * Browser-safe entry point for the stellar_card SDK.
+ *
+ * This module exports only the subset of the SDK that works in browser
+ * environments.  Node.js-only modules that depend on `fs`, `os`, `path`,
+ * or native binaries (config loading, CLI, OWS wallet) are intentionally
+ * excluded.
+ *
+ * Usage:
+ *   import { Stellar_CardClient } from 'stellar_card/browser';
+ */
 
+// REST API client — uses the global `fetch` available in all modern browsers.
 export { Stellar_CardClient } from './client';
 export type {
   OrderOptions,
+  CreateOrderOptions,
   OrderResponse,
   OrderStatus,
   OrderListItem,
@@ -27,8 +23,47 @@ export type {
   PaymentInstructions,
   Budget,
   UsageSummary,
+  RetryOptions,
+  WaitForCardOptions,
+  ListOrdersOptions,
+  ListOrdersPage,
+  IterateOrdersOptions,
+  ReportStatusOptions,
+  StellarCardClientOptions,
 } from './client';
 
+// Retry utilities — pure functions, no Node.js deps.
+export { calculateExponentialBackoffDelay, parseRetryAfterMs, sleep } from './retry';
+export type { ExponentialBackoffDelayOptions } from './retry';
+
+// Pagination utilities — pure functions, no Node.js deps.
+export {
+  paginate,
+  iteratePages,
+} from './pagination';
+export type {
+  PaginationCursor,
+  PaginatedResult,
+  PaginateOptions,
+  IteratePagesOptions,
+} from './pagination';
+
+// Network configuration helpers — pure functions, no Node.js deps.
+export {
+  resolveNetworkConfig,
+  getDefaultSorobanRpcUrl,
+  getDefaultHorizonUrl,
+  createCustomNetworkConfig,
+  validateRpcEndpoint,
+} from './network';
+export type {
+  NetworkConfig,
+  RpcEndpointConfig,
+  ResolvedRpcEndpoint,
+  ResolvedNetworkConfig,
+} from './network';
+
+// Structured error types — pure classes, no Node.js deps.
 export {
   Stellar_CardError,
   SpendLimitError,
@@ -40,4 +75,61 @@ export {
   OrderFailedError,
   WaitTimeoutError,
   ResumableError,
+  NetworkError,
+  TimeoutError,
+  ValidationError,
+  SorobanRpcError,
+  HorizonError,
+  WalletError,
+  parseApiError,
+  wrapError,
+  wrapNetworkError,
+  wrapTimeoutError,
+  wrapSorobanError,
+  wrapHorizonError,
+  wrapWalletError,
+  type ErrorContext,
 } from './errors';
+
+// Comprehensive type definitions — browser-compatible
+export type {
+  NetworkType,
+  RpcEndpoint,
+  ExtendedNetworkConfig,
+  HttpMethod,
+  HttpHeaders,
+  HttpRequestOptions,
+  HttpResponse,
+  PaymentAsset,
+  OrderCreationParams,
+  PaymentQuote,
+  ExtendedPaymentInstructions,
+  DetailedOrderPhase,
+  OrderStatusHistory,
+  ExtendedOrderStatus,
+  DetailedBudget,
+  OrderStatistics,
+  ExtendedUsageSummary,
+  ErrorSeverity,
+  ExtendedErrorContext,
+  RetryStrategy,
+  SortDirection,
+  SortOptions,
+  FilterOperator,
+  FilterCondition,
+  AdvancedListOptions,
+  DeepRequired,
+  DeepPartial,
+  KeysOfType,
+  AsyncFunction,
+  Callback,
+  EventEmitter,
+} from './types';
+
+export {
+  isPaymentAsset,
+  isOrderPhase,
+  isNetworkType,
+  hasErrorCode,
+  isRetryableError,
+} from './types';

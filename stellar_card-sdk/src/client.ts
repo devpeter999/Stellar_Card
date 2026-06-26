@@ -16,7 +16,9 @@ import {
   OrderFailedError,
   WaitTimeoutError,
   AuthError as AuthErrorCtor,
+  ValidationError,
 } from './errors';
+import { calculateExponentialBackoffDelay, sleep } from './retry';
 
 export interface Budget {
   spent_usdc: string;
@@ -129,6 +131,58 @@ export interface RetryOptions {
   maxDelayMs?: number;
 }
 
+export interface CreateOrderOptions extends OrderOptions {
+  /** Optional idempotency key for caller-managed create-order retries. */
+  idempotencyKey?: string;
+}
+
+export interface WaitForCardOptions {
+  /** Total time budget for SSE + polling fallback. Defaults to 300000ms. */
+  timeoutMs?: number;
+  /** Poll interval when SSE is unavailable. Defaults to 3000ms. */
+  intervalMs?: number;
+}
+
+export interface ListOrdersOptions {
+  status?: string;
+  limit?: number;
+  offset?: number;
+  since_created_at?: string;
+  since_updated_at?: string;
+}
+
+export interface ListOrdersPage {
+  /** Orders returned for the requested page. */
+  items: OrderListItem[];
+  /** Number of items requested for this page. */
+  limit: number;
+  /** Zero-based offset used to fetch this page. */
+  offset: number;
+  /** Offset to pass into the next request, or null when exhausted. */
+  nextOffset: number | null;
+  /**
+   * Whether another request is available. Determined by probing one
+   * extra row so callers do not need to infer it themselves.
+   */
+  hasMore: boolean;
+}
+
+export interface IterateOrdersOptions extends ListOrdersOptions {
+  /** Optional hard cap on the total number of orders yielded. */
+  maxItems?: number;
+}
+
+export interface ReportStatusOptions {
+  wallet_public_key?: string;
+  detail?: string;
+}
+
+export interface StellarCardClientOptions {
+  baseUrl?: string;
+  apiKey?: string;
+  retry?: RetryOptions;
+}
+
 // Shared order-ID shape validator. Keeps the client, the MCP tool,
 // and anything else that stamps an order id into a URL in lockstep.
 // The backend mints UUIDv4 but we allow any 1–64 char alphanumeric +
@@ -144,20 +198,48 @@ function validateOrderId(orderId: string): void {
   }
 }
 
+function normalizeIntegerOption(
+  field: 'limit' | 'offset' | 'maxItems',
+  value: number | undefined,
+  fallback: number,
+): number {
+  if (value === undefined) return fallback;
+  if (!Number.isInteger(value)) {
+    throw new ValidationError(field, 'must be an integer');
+  }
+  if (field === 'limit' && value < 1) {
+    throw new ValidationError(field, 'must be at least 1');
+  }
+  if ((field === 'offset' || field === 'maxItems') && value < 0) {
+    throw new ValidationError(field, 'must be a non-negative integer');
+  }
+  return value;
+}
+
+/** High-level SDK client for the stellar_card REST API. */
 export class Stellar_CardClient {
   private baseUrl: string;
   private apiKey: string;
   private retry: Required<RetryOptions>;
 
+  /**
+   * Create a client from explicit options, env vars, or on-disk config.
+   *
+   * Credential resolution order:
+   * 1. Explicit constructor arguments (`apiKey`, `baseUrl`).
+   * 2. `CARDS402_API_KEY` / `CARDS402_BASE_URL` environment variables.
+   * 3. `~/.stellar_card/config.json` written by `stellar_card onboard`.
+   *
+   * @param opts.apiKey - stellar_card API key. Required via one of the sources above.
+   * @param opts.baseUrl - API base URL. Defaults to `https://api.stellar_card.com/v1`.
+   * @param opts.retry - Retry policy applied to transient (429/502/503/504) errors.
+   * @throws {AuthError} When no API key can be resolved.
+   */
   constructor({
     baseUrl,
     apiKey,
     retry = {},
-  }: {
-    baseUrl?: string;
-    apiKey?: string;
-    retry?: RetryOptions;
-  } = {}) {
+  }: StellarCardClientOptions = {}) {
     // Resolve api key + base URL in priority order:
     //   1. Explicit constructor args
     //   2. CARDS402_API_KEY / CARDS402_BASE_URL env vars
@@ -248,25 +330,47 @@ export class Stellar_CardClient {
         const res = await fetch(url, init);
         if (res.ok || !this.shouldRetry(res.status) || i === attempts) return res;
         lastErr = new Error(`HTTP ${res.status}`);
+        const delayMs = calculateExponentialBackoffDelay({
+          attempt: i,
+          baseDelayMs,
+          maxDelayMs,
+          retryAfter: res.headers?.get?.('Retry-After') ?? null,
+        });
+        await sleep(delayMs);
+        continue;
       } catch (err) {
         lastErr = err;
         if (i === attempts) throw err;
+        const delayMs = calculateExponentialBackoffDelay({
+          attempt: i,
+          baseDelayMs,
+          maxDelayMs,
+        });
+        await sleep(delayMs);
       }
-      // F3-sdk (2026-04-16): full-range jitter. Pre-fix the jitter was
-      // [0, delay/4] (always additive), so in a thundering-herd scenario
-      // (many agents 429'd simultaneously) they all retried within
-      // [delay, 1.25*delay] — too narrow to decorrelate. Standard "full
-      // jitter" is [0, delay], which spreads retries across the entire
-      // backoff window and avoids the herd re-colliding at each level.
-      const delay = Math.min(baseDelayMs * Math.pow(2, i), maxDelayMs);
-      const jitter = Math.floor(Math.random() * delay);
-      await new Promise((r) => setTimeout(r, jitter));
     }
     // Unreachable because we always either return or throw above.
     throw lastErr ?? new Error('fetchWithRetry: exhausted without result');
   }
 
-  async createOrder(opts: OrderOptions & { idempotencyKey?: string }): Promise<OrderResponse> {
+  /**
+   * Create a new card order and return the payment instructions.
+   *
+   * An `Idempotency-Key` is automatically generated (or forwarded from
+   * `opts.idempotencyKey`) so retrying a 5xx response can never produce
+   * duplicate charges.
+   *
+   * @param opts.amount_usdc - Card amount as a decimal string, e.g. `"10.00"`.
+   * @param opts.idempotencyKey - Optional caller-supplied idempotency key.
+   * @param opts.webhook_url - Optional webhook URL for order-status push events.
+   * @param opts.metadata - Arbitrary key/value pairs forwarded to the backend.
+   * @returns Order response containing payment instructions and initial budget.
+   * @throws {InvalidAmountError} When `amount_usdc` is outside `[0.01, 10000]`.
+   * @throws {AuthError} When the API key is invalid or missing.
+   * @throws {SpendLimitError} When the API key's spend limit is exhausted.
+   * @throws {RateLimitError} When the order-creation rate limit (60/hour) is hit.
+   */
+  async createOrder(opts: CreateOrderOptions): Promise<OrderResponse> {
     const { idempotencyKey: providedKey, ...body } = opts;
     const idempotencyKey = providedKey ?? crypto.randomUUID();
     // Safe to retry: the Idempotency-Key collapses duplicate creates on the
@@ -284,6 +388,14 @@ export class Stellar_CardClient {
     return res.json() as Promise<OrderResponse>;
   }
 
+  /**
+   * Fetch the current status for a single order.
+   *
+   * @param orderId - Order UUID returned by {@link createOrder}.
+   * @returns Current order status including phase and card details when ready.
+   * @throws {ValidationError} When `orderId` fails the UUID-shaped pattern check.
+   * @throws {AuthError} When the API key is invalid.
+   */
   async getOrder(orderId: string): Promise<OrderStatus> {
     // Validate and encode — path param must be a UUID-shaped identifier.
     // The server also validates, but failing here avoids a round-trip
@@ -296,13 +408,15 @@ export class Stellar_CardClient {
     return res.json() as Promise<OrderStatus>;
   }
 
-  // Wait until the card is ready. Uses SSE (GET /orders/:id/stream) by
-  // default — one open connection pushed to as the phase changes — and
-  // falls back to HTTP polling if SSE fails for any reason (old backend,
-  // hostile middlebox stripping text/event-stream, etc.).
+  /**
+   * Wait until the order reaches `ready` and card details are available.
+   *
+   * Uses SSE first and falls back to HTTP polling if the stream cannot
+   * be established or is interrupted by the network path.
+   */
   async waitForCard(
     orderId: string,
-    { timeoutMs = 300000, intervalMs = 3000 }: { timeoutMs?: number; intervalMs?: number } = {},
+    { timeoutMs = 300000, intervalMs = 3000 }: WaitForCardOptions = {},
   ): Promise<CardDetails> {
     validateOrderId(orderId);
     // Shared deadline so an SSE attempt that eats most of the budget
@@ -462,26 +576,35 @@ export class Stellar_CardClient {
     throw new WaitTimeoutError(orderId, timeoutMs);
   }
 
-  // List this agent's recent orders — useful for resuming after a crash.
-  // Audit A-19: supports `since_created_at` / `since_updated_at` so agents
-  // can poll for delta without re-fetching the full history.
+  /**
+   * List this agent's recent orders.
+   *
+   * Supports offset/limit pagination plus created/updated time filters
+   * so agents can sync deltas after a crash or handoff. For automatic
+   * page iteration use {@link iterateOrders} or {@link listOrdersPage}.
+   *
+   * @param opts.status - Filter by order status string, e.g. `"delivered"`.
+   * @param opts.limit - Page size. Defaults to 20.
+   * @param opts.offset - Zero-based row offset for the page. Defaults to 0.
+   * @param opts.since_created_at - ISO-8601 lower bound on `created_at`.
+   * @param opts.since_updated_at - ISO-8601 lower bound on `updated_at`.
+   * @returns Array of lightweight order list items for the requested page.
+   * @throws {ValidationError} When `limit` or `offset` are non-integers.
+   */
   async listOrders({
     status,
     limit = 20,
     offset,
     since_created_at,
     since_updated_at,
-  }: {
-    status?: string;
-    limit?: number;
-    offset?: number;
-    since_created_at?: string;
-    since_updated_at?: string;
-  } = {}): Promise<OrderListItem[]> {
+  }: ListOrdersOptions = {}): Promise<OrderListItem[]> {
+    const normalizedLimit = normalizeIntegerOption('limit', limit, 20);
+    const normalizedOffset =
+      offset === undefined ? undefined : normalizeIntegerOption('offset', offset, 0);
     const params = new URLSearchParams();
     if (status) params.set('status', status);
-    if (limit) params.set('limit', String(limit));
-    if (offset) params.set('offset', String(offset));
+    params.set('limit', String(normalizedLimit));
+    if (normalizedOffset !== undefined) params.set('offset', String(normalizedOffset));
     if (since_created_at) params.set('since_created_at', since_created_at);
     if (since_updated_at) params.set('since_updated_at', since_updated_at);
     const qs = params.toString() ? `?${params}` : '';
@@ -492,7 +615,91 @@ export class Stellar_CardClient {
     return res.json() as Promise<OrderListItem[]>;
   }
 
-  // Get the agent's own spend and budget summary — useful for reporting to owners.
+  /**
+   * Fetch a single page of orders plus continuation metadata.
+   *
+   * The SDK probes one extra row to determine whether another page is
+   * available, so callers get a reliable `hasMore` signal even though
+   * the API itself returns a bare array. Use {@link iterateOrders} when
+   * you need to walk all pages without manually tracking offsets.
+   *
+   * @param opts - Same filters and pagination options as {@link listOrders}.
+   * @returns Page result with `items`, `hasMore`, and `nextOffset`.
+   */
+  async listOrdersPage(opts: ListOrdersOptions = {}): Promise<ListOrdersPage> {
+    const limit = normalizeIntegerOption('limit', opts.limit, 20);
+    const offset = normalizeIntegerOption('offset', opts.offset, 0);
+    const items = await this.listOrders({
+      ...opts,
+      limit: limit + 1,
+      offset,
+    });
+    const hasMore = items.length > limit;
+    const pageItems = hasMore ? items.slice(0, limit) : items;
+    return {
+      items: pageItems,
+      limit,
+      offset,
+      nextOffset: hasMore ? offset + pageItems.length : null,
+      hasMore,
+    };
+  }
+
+  /**
+   * Iterate orders across pages without manually managing offsets.
+   *
+   * Useful for CLI sync jobs, reporting, or exporting an entire order
+   * history while still bounding memory to one page at a time.
+   *
+   * @param opts.maxItems - Hard cap on total yielded items. Unlimited when omitted.
+   * @param opts.limit - Page size. Defaults to 20.
+   * @param opts.offset - Zero-based starting offset. Defaults to 0.
+   * @yields Each {@link OrderListItem} across all pages in ascending offset order.
+   *
+   * @example
+   * for await (const order of client.iterateOrders({ status: 'delivered' })) {
+   *   console.log(order.id, order.amount_usdc);
+   * }
+   */
+  async *iterateOrders({
+    maxItems,
+    limit = 20,
+    offset = 0,
+    ...filters
+  }: IterateOrdersOptions = {}): AsyncGenerator<OrderListItem, void, void> {
+    let remaining =
+      maxItems === undefined ? Number.POSITIVE_INFINITY : normalizeIntegerOption('maxItems', maxItems, 0);
+    let nextOffset = normalizeIntegerOption('offset', offset, 0);
+    const pageSize = normalizeIntegerOption('limit', limit, 20);
+
+    while (remaining > 0) {
+      const requestLimit = Number.isFinite(remaining) ? Math.max(1, Math.min(pageSize, remaining)) : pageSize;
+      const page = await this.listOrdersPage({
+        ...filters,
+        limit: requestLimit,
+        offset: nextOffset,
+      });
+
+      for (const item of page.items) {
+        yield item;
+        if (Number.isFinite(remaining)) remaining--;
+      }
+
+      if (!page.hasMore || page.nextOffset === null) return;
+      nextOffset = page.nextOffset;
+    }
+  }
+
+  /**
+   * Get the agent's spend and budget summary.
+   *
+   * Returns lifetime totals plus the current in-flight amount and remaining
+   * budget for the API key. Useful for budget-gating logic before creating
+   * an order.
+   *
+   * @returns Spend summary including budget limits and order counts.
+   * @throws {AuthError} When the API key is invalid.
+   */
   async getUsage(): Promise<UsageSummary> {
     const res = await this.fetchWithRetry(`${this.baseUrl}/usage`, {
       headers: { 'X-Api-Key': this.apiKey },
@@ -501,25 +708,20 @@ export class Stellar_CardClient {
     return res.json() as Promise<UsageSummary>;
   }
 
-  // Report a setup lifecycle transition to the backend. The owner's
-  // admin dashboard and the agent's own dashboard subscribe to these
-  // via SSE and show a live "onboarding state" pill, so operators can
-  // see at a glance which agents are setting up, which are awaiting
-  // deposits, and which are active.
-  //
-  // Valid states:
-  //   'initializing'     — the agent is just starting setup
-  //   'awaiting_funding' — wallet created, waiting for on-chain deposit
-  //
-  // 'minted' (never contacted) and 'active' (first delivered order) are
-  // derived by the backend from activity, so you don't report those.
-  //
-  // Errors are swallowed: dashboard state is a best-effort signal, not
-  // something that should break the purchase flow if the endpoint is
-  // transiently unreachable.
+  /**
+   * Report a wallet setup lifecycle transition to the backend.
+   *
+   * This endpoint is best-effort by design — failures are swallowed so a
+   * transient dashboard outage cannot block onboarding or purchases.
+   * Called automatically by the `stellar_card onboard` CLI command.
+   *
+   * @param state - Lifecycle state: `"initializing"` or `"awaiting_funding"`.
+   * @param opts.wallet_public_key - Stellar public key of the agent's wallet.
+   * @param opts.detail - Optional free-text detail for the dashboard.
+   */
   async reportStatus(
     state: 'initializing' | 'awaiting_funding',
-    opts: { wallet_public_key?: string; detail?: string } = {},
+    opts: ReportStatusOptions = {},
   ): Promise<void> {
     try {
       await this.fetchWithRetry(`${this.baseUrl}/agent/status`, {
