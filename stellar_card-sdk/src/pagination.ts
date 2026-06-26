@@ -99,6 +99,23 @@ export interface IteratePagesOptions<T> extends PaginateOptions<T> {
   maxItems?: number;
 }
 
+/**
+ * Collect all pages into a single array.
+ *
+ * Convenience wrapper around `iteratePages` for cases where the full result
+ * set fits in memory and caller-side streaming is not needed.
+ *
+ * @example
+ * const all = await collectAllPages({ fetchPage, limit: 50 });
+ */
+export async function collectAllPages<T>(opts: IteratePagesOptions<T>): Promise<T[]> {
+  const items: T[] = [];
+  for await (const item of iteratePages(opts)) {
+    items.push(item);
+  }
+  return items;
+}
+
 export async function* iteratePages<T>(
   opts: IteratePagesOptions<T>,
 ): AsyncGenerator<T, void, void> {

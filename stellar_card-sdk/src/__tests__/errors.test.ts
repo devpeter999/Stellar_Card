@@ -152,6 +152,46 @@ describe('WaitTimeoutError', () => {
   });
 });
 
+describe('Stellar_CardError#toJSON', () => {
+  it('includes name, message, code, status', () => {
+    const err = new Stellar_CardError('bad', 'err_code', 422);
+    const json = err.toJSON();
+    expect(json.name).toBe('Stellar_CardError');
+    expect(json.message).toBe('bad');
+    expect(json.code).toBe('err_code');
+    expect(json.status).toBe(422);
+  });
+
+  it('omits context when not set', () => {
+    const err = new Stellar_CardError('msg', 'code', 0);
+    expect(err.toJSON().context).toBeUndefined();
+  });
+
+  it('serializes context fields without cause (not serializable)', () => {
+    const err = new Stellar_CardError('msg', 'code', 500, undefined, {
+      source: 'test_source',
+      operation: 'do_thing',
+      recoveryHint: 'retry',
+      metadata: { attempt: 1 },
+      cause: new Error('root'),
+    });
+    const json = err.toJSON();
+    const ctx = json.context as Record<string, unknown>;
+    expect(ctx.source).toBe('test_source');
+    expect(ctx.operation).toBe('do_thing');
+    expect(ctx.recoveryHint).toBe('retry');
+    expect(ctx.metadata).toEqual({ attempt: 1 });
+    expect(ctx.cause).toBeUndefined();
+  });
+
+  it('is round-trippable through JSON.stringify', () => {
+    const err = new SpendLimitError('100.00', '90.00');
+    const round = JSON.parse(JSON.stringify(err.toJSON()));
+    expect(round.name).toBe('SpendLimitError');
+    expect(round.code).toBe('spend_limit_exceeded');
+  });
+});
+
 describe('parseApiError', () => {
   it('returns SpendLimitError for spend_limit_exceeded', () => {
     const err = parseApiError(403, {

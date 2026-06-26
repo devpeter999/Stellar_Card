@@ -48,6 +48,24 @@ export class Stellar_CardError extends Error {
     if (this.context?.cause) parts.push(`[caused by: ${this.context.cause.message}]`);
     return parts.join('\n');
   }
+
+  /** Serialize to a plain object safe for JSON.stringify / structured logging. */
+  toJSON(): Record<string, unknown> {
+    return {
+      name: this.name,
+      message: this.message,
+      code: this.code,
+      status: this.status,
+      context: this.context
+        ? {
+            source: this.context.source,
+            operation: this.context.operation,
+            recoveryHint: this.context.recoveryHint,
+            metadata: this.context.metadata,
+          }
+        : undefined,
+    };
+  }
 }
 
 /** The API key's spend limit has been reached. */
