@@ -102,11 +102,17 @@ export interface IteratePagesOptions<T> extends PaginateOptions<T> {
 /**
  * Collect all pages into a single array.
  *
- * Convenience wrapper around `iteratePages` for cases where the full result
- * set fits in memory and caller-side streaming is not needed.
+ * Convenience wrapper around {@link iteratePages} for cases where the full
+ * result set fits in memory and caller-side streaming is not needed.
+ *
+ * @param opts - Pagination options (same as {@link iteratePages}).
+ * @returns A promise that resolves to an array containing every item across
+ *   all pages in ascending offset order.
  *
  * @example
+ * ```typescript
  * const all = await collectAllPages({ fetchPage, limit: 50 });
+ * ```
  */
 export async function collectAllPages<T>(opts: IteratePagesOptions<T>): Promise<T[]> {
   const items: T[] = [];
@@ -116,6 +122,26 @@ export async function collectAllPages<T>(opts: IteratePagesOptions<T>): Promise<
   return items;
 }
 
+/**
+ * Async generator that iterates every item across all pages using
+ * the provided `fetchPage` function.
+ *
+ * Memory usage is bounded to one page at a time regardless of total
+ * item count. Use `maxItems` to impose a hard cap on the number of
+ * yielded items.
+ *
+ * @param opts - Pagination options including `fetchPage`, `limit`, `initialOffset`,
+ *   and an optional `maxItems` cap.
+ * @yields Each item across all pages in ascending offset order.
+ * @throws {RangeError} When `maxItems` is not a non-negative integer.
+ *
+ * @example
+ * ```typescript
+ * for await (const item of iteratePages({ fetchPage, limit: 50 })) {
+ *   console.log(item);
+ * }
+ * ```
+ */
 export async function* iteratePages<T>(
   opts: IteratePagesOptions<T>,
 ): AsyncGenerator<T, void, void> {

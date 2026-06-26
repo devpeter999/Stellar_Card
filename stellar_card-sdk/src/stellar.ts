@@ -148,11 +148,19 @@ export async function addUsdcTrustline(
 
 // ── Contract payment ──────────────────────────────────────────────────────────
 
+/**
+ * Options for {@link payViaContract}.
+ */
 export interface PayOpts {
+  /** Stellar secret key (S-address) for the signing account. */
   walletSecret: string;
+  /** Payment instructions returned by {@link Stellar_CardClient.createOrder}. */
   payment: PaymentInstructions;
+  /** Asset to pay with. Defaults to `'usdc'`. */
   paymentAsset?: 'usdc' | 'xlm';
+  /** Stellar network passphrase. Defaults to `Networks.PUBLIC` (mainnet). */
   networkPassphrase?: string;
+  /** Custom Soroban RPC URL. Defaults to the public endpoint for the selected network. */
   sorobanRpcUrl?: string;
   /** Override the Horizon REST API URL. Defaults to the public endpoint for the selected network. */
   horizonUrl?: string;
@@ -160,9 +168,27 @@ export interface PayOpts {
 
 /**
  * Pay the stellar_card receiver contract using a raw Stellar secret key.
- * Invokes pay_usdc or pay_xlm with the agent's G-address, the quoted amount
- * converted to 7-decimal stroops, and the order_id from the create-order
- * response. Returns the Soroban transaction hash.
+ *
+ * Invokes `pay_usdc` or `pay_xlm` on the Soroban receiver contract with the
+ * agent's G-address, the quoted amount converted to 7-decimal stroops, and
+ * the `order_id` from the create-order response. Includes a single automatic
+ * fee-bump retry when the network rejects the initial fee.
+ *
+ * @param opts - Payment options including the wallet secret, payment instructions,
+ *   and optional network / RPC overrides.
+ * @returns Promise resolving to the Stellar transaction hash.
+ * @throws {Error} When `payment.contract_id` is not a valid Soroban contract address.
+ * @throws {InsufficientFeeError} When the fee is still insufficient after the retry.
+ * @throws {Error} When the Soroban transaction fails on-chain or times out.
+ *
+ * @example
+ * ```typescript
+ * const txHash = await payViaContract({
+ *   walletSecret: process.env.STELLAR_SECRET!,
+ *   payment: order.payment,
+ *   paymentAsset: 'usdc',
+ * });
+ * ```
  */
 export async function payViaContract(opts: PayOpts): Promise<string> {
   const {
@@ -213,9 +239,32 @@ export async function payViaContract(opts: PayOpts): Promise<string> {
 }
 
 /**
- * Full purchase flow with a raw keypair: create order → invoke contract →
- * wait for card. Pass `resume: { orderId, payment }` to re-enter a partially
- * completed flow without creating a new order (S-9).
+ * Full purchase flow with a raw Stellar keypair.
+ *
+ * Orchestrates the complete card acquisition sequence:
+ * 1. Creates a new order via the stellar_card API (or resumes an existing one).
+ * 2. Pays the Soroban receiver contract using the supplied secret key.
+ * 3. Waits for the card to be ready and returns its details.
+ *
+ * Pass `resume: { orderId, payment }` to re-enter a partially completed flow
+ * without creating a new order, avoiding duplicate charges when a previous
+ * attempt timed out or lost connectivity after payment was submitted.
+ *
+ * @param opts.apiKey - stellar_card API key.
+ * @param opts.walletSecret - Stellar secret key (S-address) used to sign the payment transaction.
+ * @param opts.amountUsdc - Card amount as a decimal string, e.g. `"10.00"`.
+ * @param opts.paymentAsset - Asset to pay with (`'usdc'` or `'xlm'`). Defaults to `'usdc'`.
+ * @param opts.baseUrl - Override the API base URL.
+ * @param opts.networkPassphrase - Stellar network passphrase. Defaults to mainnet.
+ * @param opts.sorobanRpcUrl - Custom Soroban RPC endpoint.
+ * @param opts.horizonUrl - Custom Horizon REST API endpoint.
+ * @param opts.resume - Resume an existing order instead of creating a new one.
+ * @param opts.waitForCardOpts - Timeout and polling interval for the card-ready wait.
+ * @returns Promise resolving to card details plus the `order_id`.
+ * @throws {InvalidAmountError} When `amountUsdc` is outside `[0.01, 10000]`.
+ * @throws {SpendLimitError} When the API key's spend limit is exhausted.
+ * @throws {OrderFailedError} When the order fails during fulfillment.
+ * @throws {WaitTimeoutError} When card delivery times out.
  */
 export async function purchaseCard(opts: {
   apiKey: string;

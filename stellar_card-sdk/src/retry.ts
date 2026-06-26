@@ -16,27 +16,41 @@ export interface ExponentialBackoffDelayOptions {
 }
 
 /**
- * Advanced retry strategy configuration
+ * Advanced retry strategy configuration.
+ *
+ * Used with {@link withAdvancedRetry} to control retry behaviour including
+ * backoff strategy, jitter, and an optional circuit-breaker overlay.
  */
 export interface AdvancedRetryStrategy {
-  /** Maximum number of retry attempts */
+  /** Maximum number of total attempts (including the initial call). */
   maxAttempts: number;
-  /** Base delay between retries in milliseconds */
+  /** Base delay between retries in milliseconds. */
   baseDelayMs: number;
-  /** Maximum delay cap in milliseconds */
+  /** Maximum delay cap in milliseconds. */
   maxDelayMs: number;
-  /** Exponential backoff multiplier */
+  /** Exponential backoff multiplier applied on each successive retry. */
   multiplier: number;
-  /** Jitter strategy to avoid thundering herd */
+  /** Jitter strategy used to spread retries and avoid thundering-herd bursts. */
   jitterStrategy: 'full' | 'equal' | 'decorrelated' | 'none';
-  /** Custom retry condition predicate */
+  /**
+   * Optional predicate that decides whether a given error is retryable.
+   * Return `true` to retry, `false` to rethrow immediately without further attempts.
+   * Defaults to retrying all errors when omitted.
+   */
   shouldRetry?: (error: unknown, attempt: number) => boolean;
-  /** Backoff strategy */
+  /** Backoff growth model applied between retries. */
   backoffStrategy: 'exponential' | 'linear' | 'fixed';
-  /** Circuit breaker configuration */
+  /**
+   * Optional circuit-breaker overlay. When configured, the circuit opens
+   * (blocks all attempts) once `failureThreshold` consecutive failures occur
+   * within `monitoringPeriodMs`, and recovers after `recoveryTimeoutMs`.
+   */
   circuitBreaker?: {
+    /** Number of consecutive failures before the circuit opens. */
     failureThreshold: number;
+    /** Milliseconds to wait before transitioning from open → half-open. */
     recoveryTimeoutMs: number;
+    /** Sliding window in milliseconds used to count consecutive failures. */
     monitoringPeriodMs: number;
   };
 }
@@ -81,13 +95,28 @@ export function parseRetryAfterMs(
  * Compute a capped exponential backoff delay for an API retry attempt.
  *
  * Supports multiple jitter strategies:
- * - full: Random delay between 0 and computed delay (default)
- * - equal: Half computed delay + half random
- * - decorrelated: Uses previous delay to compute next delay
- * - none: No jitter, use computed delay as-is
+ * - `full`: random delay in `[0, cappedDelay)` — spreads retries most aggressively (default)
+ * - `equal`: `cappedDelay * 0.5 + random * cappedDelay * 0.5` — moderate spread
+ * - `decorrelated`: each delay is random between `baseDelayMs` and `prevDelay * 3`
+ * - `none`: deterministic `cappedDelay` with no randomness
  *
- * When the server provides `Retry-After`, that value is treated as a
- * minimum delay and can extend the client-side backoff.
+ * When the server provides a `Retry-After` header, that value acts as a hard
+ * floor — the returned delay will never be shorter than the server-specified
+ * wait, even if the client-side jittered value would be smaller.
+ *
+ * @param opts - Backoff configuration including attempt index, delays, and jitter mode.
+ * @returns Milliseconds to wait before the next attempt.
+ *
+ * @example
+ * ```typescript
+ * const delay = calculateExponentialBackoffDelay({
+ *   attempt: 2,
+ *   baseDelayMs: 100,
+ *   maxDelayMs: 5000,
+ *   jitter: 'full',
+ * });
+ * await sleep(delay);
+ * ```
  */
 export function calculateExponentialBackoffDelay(
   opts: ExponentialBackoffDelayOptions,
@@ -127,7 +156,34 @@ export function calculateExponentialBackoffDelay(
 }
 
 /**
- * Advanced retry implementation with circuit breaker support
+ * Run an async operation with a fully-configurable retry strategy.
+ *
+ * Unlike the simpler {@link withRetry}, this variant exposes the full
+ * {@link AdvancedRetryStrategy} surface including `linear` / `fixed` backoff
+ * modes and an optional circuit-breaker configuration.
+ *
+ * @param fn - The async operation to attempt. Receives the zero-based attempt
+ *   index (0 on the initial call, 1 on the first retry, …).
+ * @param strategy - Retry strategy configuration.
+ * @returns The value returned by `fn` on a successful attempt.
+ * @throws The last error thrown by `fn` when all attempts are exhausted,
+ *   or immediately if `strategy.shouldRetry` returns `false`.
+ *
+ * @example
+ * ```typescript
+ * const result = await withAdvancedRetry(
+ *   (attempt) => fetchData(attempt),
+ *   {
+ *     maxAttempts: 5,
+ *     baseDelayMs: 200,
+ *     maxDelayMs: 10000,
+ *     multiplier: 2,
+ *     jitterStrategy: 'full',
+ *     backoffStrategy: 'exponential',
+ *     shouldRetry: (err) => err instanceof RateLimitError,
+ *   },
+ * );
+ * ```
  */
 export async function withAdvancedRetry<T>(
   fn: (attempt: number) => Promise<T>,
