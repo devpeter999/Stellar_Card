@@ -40,21 +40,28 @@ export type { ExponentialBackoffDelayOptions } from './retry';
 export {
   paginate,
   iteratePages,
+  collectAllPages,
+  mapPaginated,
 } from './pagination';
 export type {
   PaginationCursor,
   PaginatedResult,
   PaginateOptions,
   IteratePagesOptions,
+  MapPaginatedOptions,
 } from './pagination';
 
 // Network configuration helpers — pure functions, no Node.js deps.
+// `resolveNetworkConfigFromEnv` guards its `process.env` access so it is safe
+// to call in the browser (it simply ignores the absent environment there).
 export {
   resolveNetworkConfig,
+  resolveNetworkConfigFromEnv,
   getDefaultSorobanRpcUrl,
   getDefaultHorizonUrl,
   createCustomNetworkConfig,
   validateRpcEndpoint,
+  NETWORK_ENV_VARS,
 } from './network';
 export type {
   NetworkConfig,

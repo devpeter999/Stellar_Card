@@ -56,7 +56,9 @@
     "lint": "eslint src",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.esm.json --noEmit",
     "test": "vitest run",
-    "prepublishOnly": "npm run build && npm test"
+    "check:browser": "node scripts/check-browser-deps.mjs",
+    "verify:package": "node scripts/verify-package.mjs",
+    "prepublishOnly": "npm run build && npm test && npm run check:browser && npm run verify:package"
   },
   "keywords": [
     "stellar",

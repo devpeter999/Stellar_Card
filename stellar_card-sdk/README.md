@@ -102,6 +102,38 @@ for await (const order of client.iterateOrders({ status: 'delivered', limit: 50,
 
 `listOrdersPage` adds continuation metadata on top of the API's bare array response, and `iterateOrders` streams through pages one batch at a time so you do not have to manage offsets manually.
 
+For paginating any other cursor-based source, the generic helpers `paginate`, `iteratePages`, `collectAllPages`, and `mapPaginated` work with any async page-fetching function:
+
+```typescript
+import { collectAllPages, mapPaginated } from 'stellar_card';
+
+// Gather everything into one array (with an optional hard cap).
+const all = await collectAllPages({
+  fetchPage: (cur) => api.list({ limit: cur.limit, offset: cur.offset }),
+  limit: 100,
+  maxItems: 1000,
+});
+
+// Or stream a transform across every item, page by page.
+for await (const id of mapPaginated({ fetchPage, limit: 50, transform: (o) => o.id })) {
+  console.log(id);
+}
+```
+
+## Custom RPC endpoints
+
+Point the SDK at private validators, Futurenet, or a custom deployment via `resolveNetworkConfig`, or load the configuration straight from environment variables with `resolveNetworkConfigFromEnv`:
+
+```typescript
+import { resolveNetworkConfigFromEnv } from 'stellar_card';
+
+// Reads STELLAR_SOROBAN_RPC_URL, STELLAR_HORIZON_URL, STELLAR_RPC_API_KEY,
+// STELLAR_RPC_TIMEOUT, STELLAR_NETWORK_PASSPHRASE — falling back to the public
+// defaults for anything unset. Explicit overrides win over the environment.
+const net = resolveNetworkConfigFromEnv({ networkName: 'My Validator' });
+console.log(net.sorobanRpc.url, net.horizon.url);
+```
+
 ## Retry tuning
 
 ```typescript

@@ -64,6 +64,14 @@ jobs:
         working-directory: stellar_card-sdk
         run: npm run build
 
+      - name: Check browser entry has no Node built-ins
+        working-directory: stellar_card-sdk
+        run: npm run check:browser
+
+      - name: Verify publishable package contents
+        working-directory: stellar_card-sdk
+        run: npm run verify:package
+
       - name: Upload coverage
         uses: codecov/codecov-action@v3
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == '20.x'

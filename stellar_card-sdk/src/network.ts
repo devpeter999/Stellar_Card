@@ -234,3 +234,76 @@ export function validateRpcEndpoint(url: string, context?: string): void {
     );
   }
 }
+
+/** Environment variable names recognised by {@link resolveNetworkConfigFromEnv}. */
+export const NETWORK_ENV_VARS = {
+  networkPassphrase: 'STELLAR_NETWORK_PASSPHRASE',
+  sorobanRpcUrl: 'STELLAR_SOROBAN_RPC_URL',
+  horizonUrl: 'STELLAR_HORIZON_URL',
+  apiKey: 'STELLAR_RPC_API_KEY',
+  timeout: 'STELLAR_RPC_TIMEOUT',
+  networkName: 'STELLAR_NETWORK_NAME',
+} as const;
+
+/**
+ * Resolve network configuration from environment variables, falling back to
+ * the public defaults for any variable that is unset.
+ *
+ * Recognised variables (see {@link NETWORK_ENV_VARS}):
+ *   - `STELLAR_NETWORK_PASSPHRASE` — network passphrase (defaults to PUBLIC)
+ *   - `STELLAR_SOROBAN_RPC_URL`    — custom Soroban RPC endpoint
+ *   - `STELLAR_HORIZON_URL`        — custom Horizon endpoint
+ *   - `STELLAR_RPC_API_KEY`        — API key applied to both endpoints
+ *   - `STELLAR_RPC_TIMEOUT`        — request timeout in ms (must be a positive integer)
+ *   - `STELLAR_NETWORK_NAME`       — human-readable network name
+ *
+ * A `overrides` object can be supplied to take precedence over the
+ * environment — handy when only some values come from `process.env`.
+ *
+ * Browser-safe: when `process.env` is unavailable (e.g. in a bundled browser
+ * build) this behaves exactly like {@link resolveNetworkConfig} with only the
+ * supplied `overrides` applied.
+ */
+export function resolveNetworkConfigFromEnv(
+  overrides: NetworkConfig = {},
+): ResolvedNetworkConfig {
+  const env: Record<string, string | undefined> =
+    typeof process !== 'undefined' && process.env ? process.env : {};
+
+  const apiKey = env[NETWORK_ENV_VARS.apiKey];
+
+  let timeout: number | undefined;
+  const rawTimeout = env[NETWORK_ENV_VARS.timeout];
+  if (rawTimeout !== undefined && rawTimeout !== '') {
+    const parsed = Number(rawTimeout);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new Error(
+        `${NETWORK_ENV_VARS.timeout} must be a positive integer (ms), got "${rawTimeout}"`,
+      );
+    }
+    timeout = parsed;
+  }
+
+  // Build endpoint configs only when a URL is present so the public defaults
+  // still apply when a URL is omitted. The env apiKey/timeout are attached to
+  // any explicitly-configured endpoint URL.
+  const buildEndpoint = (
+    url: string | undefined,
+  ): string | RpcEndpointConfig | undefined => {
+    if (url === undefined || url === '') return undefined;
+    if (apiKey || timeout !== undefined) {
+      return { url, apiKey, timeout };
+    }
+    return url;
+  };
+
+  return resolveNetworkConfig({
+    networkPassphrase:
+      overrides.networkPassphrase ?? env[NETWORK_ENV_VARS.networkPassphrase],
+    sorobanRpcUrl:
+      overrides.sorobanRpcUrl ?? buildEndpoint(env[NETWORK_ENV_VARS.sorobanRpcUrl]),
+    horizonUrl:
+      overrides.horizonUrl ?? buildEndpoint(env[NETWORK_ENV_VARS.horizonUrl]),
+    networkName: overrides.networkName ?? env[NETWORK_ENV_VARS.networkName],
+  });
+}

@@ -74,7 +74,7 @@ describe('browser entry point exports', () => {
 
   it('resolveNetworkConfig works correctly in browser context', () => {
     const cfg = resolveNetworkConfig();
-    expect(cfg.sorobanRpcUrl).toBe('https://mainnet.sorobanrpc.com');
-    expect(cfg.horizonUrl).toBe('https://horizon.stellar.org');
+    expect(cfg.sorobanRpc.url).toBe('https://mainnet.sorobanrpc.com');
+    expect(cfg.horizon.url).toBe('https://horizon.stellar.org');
   });
 });

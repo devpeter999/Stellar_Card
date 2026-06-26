@@ -17,6 +17,8 @@ Jobs:
   - TypeScript type checking
   - Unit tests with Vitest
   - Build TypeScript → JavaScript
+  - Browser-entry guard (`npm run check:browser`) — fails if `src/browser.ts`'s import graph reaches a Node.js built-in not stubbed by the `browser` field
+  - Package verification (`npm run verify:package`) — `npm pack --dry-run` check that the publishable tarball has every entry point, no source/tests/tooling, and stays under the size budget
   - Upload coverage to Codecov
 
 - **type-matrix**: Tests TypeScript compatibility with multiple versions (5.0 - 5.3)
@@ -47,11 +49,13 @@ Process:
 2. Install dependencies
 3. Run lint, typecheck, tests
 4. Build distribution files
-5. Verify version matches `package.json`
-6. Extract changelog from `CHANGELOG.md`
-7. Publish to npm registry
-8. Create GitHub Release
-9. Notify Slack (if webhook configured)
+5. Verify browser entry has no Node.js built-ins (`check:browser`)
+6. Verify publishable package contents (`verify:package`)
+7. Verify version matches `package.json`
+8. Extract changelog from `CHANGELOG.md`
+9. Publish to npm registry
+10. Create GitHub Release
+11. Notify Slack (if webhook configured)
 
 Requires secrets:
 - `NPM_TOKEN`: npm automation token
