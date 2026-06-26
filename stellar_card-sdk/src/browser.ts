@@ -53,8 +53,15 @@ export {
   resolveNetworkConfig,
   getDefaultSorobanRpcUrl,
   getDefaultHorizonUrl,
+  createCustomNetworkConfig,
+  validateRpcEndpoint,
 } from './network';
-export type { NetworkConfig } from './network';
+export type {
+  NetworkConfig,
+  RpcEndpointConfig,
+  ResolvedRpcEndpoint,
+  ResolvedNetworkConfig,
+} from './network';
 
 // Structured error types — pure classes, no Node.js deps.
 export {
@@ -83,3 +90,46 @@ export {
   wrapWalletError,
   type ErrorContext,
 } from './errors';
+
+// Comprehensive type definitions — browser-compatible
+export type {
+  NetworkType,
+  RpcEndpoint,
+  ExtendedNetworkConfig,
+  HttpMethod,
+  HttpHeaders,
+  HttpRequestOptions,
+  HttpResponse,
+  PaymentAsset,
+  OrderCreationParams,
+  PaymentQuote,
+  ExtendedPaymentInstructions,
+  DetailedOrderPhase,
+  OrderStatusHistory,
+  ExtendedOrderStatus,
+  DetailedBudget,
+  OrderStatistics,
+  ExtendedUsageSummary,
+  ErrorSeverity,
+  ExtendedErrorContext,
+  RetryStrategy,
+  SortDirection,
+  SortOptions,
+  FilterOperator,
+  FilterCondition,
+  AdvancedListOptions,
+  DeepRequired,
+  DeepPartial,
+  KeysOfType,
+  AsyncFunction,
+  Callback,
+  EventEmitter,
+} from './types';
+
+export {
+  isPaymentAsset,
+  isOrderPhase,
+  isNetworkType,
+  hasErrorCode,
+  isRetryableError,
+} from './types';

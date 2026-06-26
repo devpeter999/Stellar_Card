@@ -22,6 +22,18 @@
     }
   },
   "sideEffects": false,
+  "browser": {
+    "./dist/config.js": false,
+    "./dist/ows.js": false,
+    "./dist/cli.js": false,
+    "./dist/commands/onboard.js": false,
+    "./dist/commands/purchase.js": false,
+    "./dist/commands/wallet.js": false,
+    "fs": false,
+    "path": false,
+    "os": false,
+    "crypto": false
+  },
   "bin": {
     "stellar_card": "./dist/cli.js"
   },
