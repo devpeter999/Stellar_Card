@@ -96,7 +96,17 @@ function normalizeRpcEndpoint(
  * Callers can pass a partial config and rely on this function to fill in
  * the public defaults for the selected network passphrase.
  *
- * Now supports custom RPC endpoints with authentication and timeout configuration.
+ * @param config - Partial network configuration object (optional)
+ * @returns Fully resolved network configuration with all endpoints populated
+ *
+ * @example
+ * ```typescript
+ * const config = resolveNetworkConfig({ 
+ *   networkPassphrase: Networks.TESTNET,
+ *   sorobanRpcUrl: 'https://custom-rpc.example.com'
+ * });
+ * console.log('Soroban RPC:', config.sorobanRpc.url);
+ * ```
  */
 export function resolveNetworkConfig(config: NetworkConfig = {}): ResolvedNetworkConfig {
   const networkPassphrase = config.networkPassphrase ?? Networks.PUBLIC;
@@ -129,9 +139,17 @@ export function resolveNetworkConfig(config: NetworkConfig = {}): ResolvedNetwor
 
 /**
  * Return the default Soroban RPC URL for a given network passphrase.
- * Exposed so callers can derive the URL without constructing a full config.
  * 
- * Now supports Futurenet in addition to Mainnet and Testnet.
+ * Supports Mainnet, Testnet, and Futurenet networks.
+ * 
+ * @param networkPassphrase - Stellar network passphrase (defaults to mainnet)
+ * @returns The default Soroban RPC URL for the specified network
+ *
+ * @example
+ * ```typescript
+ * const rpcUrl = getDefaultSorobanRpcUrl(Networks.TESTNET);
+ * console.log('Testnet RPC:', rpcUrl); // https://soroban-testnet.stellar.org
+ * ```
  */
 export function getDefaultSorobanRpcUrl(networkPassphrase = Networks.PUBLIC): string {
   if (networkPassphrase === Networks.TESTNET) return TESTNET_RPC;
@@ -141,9 +159,17 @@ export function getDefaultSorobanRpcUrl(networkPassphrase = Networks.PUBLIC): st
 
 /**
  * Return the default Horizon URL for a given network passphrase.
- * Exposed so callers can derive the URL without constructing a full config.
  * 
- * Now supports Futurenet in addition to Mainnet and Testnet.
+ * Supports Mainnet, Testnet, and Futurenet networks.
+ * 
+ * @param networkPassphrase - Stellar network passphrase (defaults to mainnet)
+ * @returns The default Horizon URL for the specified network
+ *
+ * @example
+ * ```typescript
+ * const horizonUrl = getDefaultHorizonUrl(Networks.TESTNET);
+ * console.log('Testnet Horizon:', horizonUrl); // https://horizon-testnet.stellar.org
+ * ```
  */
 export function getDefaultHorizonUrl(networkPassphrase = Networks.PUBLIC): string {
   if (networkPassphrase === Networks.TESTNET) return TESTNET_HORIZON;
@@ -173,7 +199,21 @@ export function createCustomNetworkConfig(params: {
 
 /**
  * Validate that an RPC endpoint URL is well-formed.
- * Throws if the URL is invalid or uses an insecure protocol in production.
+ * 
+ * Checks URL format and warns about insecure HTTP endpoints in production.
+ * 
+ * @param url - The RPC endpoint URL to validate
+ * @param context - Optional context description for error messages
+ * @throws {Error} When the URL is malformed or uses an invalid protocol
+ *
+ * @example
+ * ```typescript
+ * validateRpcEndpoint('https://rpc.example.com', 'Soroban RPC');
+ * // Validates successfully
+ * 
+ * validateRpcEndpoint('ftp://invalid.com'); 
+ * // Throws: Invalid protocol: ftp:
+ * ```
  */
 export function validateRpcEndpoint(url: string, context?: string): void {
   try {

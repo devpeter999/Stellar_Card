@@ -477,3 +477,283 @@ export interface EventEmitter<Events extends Record<string, unknown[]>> {
   off<K extends keyof Events>(event: K, listener: (...args: Events[K]) => void): void;
   emit<K extends keyof Events>(event: K, ...args: Events[K]): void;
 }
+
+// ============================================================================
+// ENHANCED INTERFACES - PART 3
+// ============================================================================
+
+/** Server-Sent Events stream interface */
+export interface SSEStream {
+  /** Stream URL */
+  url: string;
+  /** Connection state */
+  readyState: 'connecting' | 'open' | 'closed';
+  /** Last event ID for resumption */
+  lastEventId?: string;
+  /** Event handlers */
+  onopen?: (event: Event) => void;
+  onmessage?: (event: MessageEvent) => void;
+  onerror?: (event: Event) => void;
+  /** Close the stream */
+  close(): void;
+}
+
+/** Enhanced HTTP client configuration */
+export interface AdvancedHttpConfig {
+  /** Base URL for all requests */
+  baseUrl: string;
+  /** Default headers for all requests */
+  defaultHeaders?: HttpHeaders;
+  /** Request timeout in milliseconds */
+  timeout?: number;
+  /** Retry configuration */
+  retryConfig?: RetryStrategy;
+  /** Request interceptors */
+  requestInterceptors?: Array<(config: HttpRequestOptions) => HttpRequestOptions>;
+  /** Response interceptors */
+  responseInterceptors?: Array<(response: HttpResponse) => HttpResponse>;
+}
+
+/** Request context for debugging and monitoring */
+export interface RequestContext {
+  /** Unique request identifier */
+  requestId: string;
+  /** Request timestamp */
+  timestamp: Date;
+  /** Request method */
+  method: HttpMethod;
+  /** Request URL */
+  url: string;
+  /** Request attempt number */
+  attempt: number;
+  /** Parent trace ID for distributed tracing */
+  traceId?: string;
+}
+
+/** Wallet security configuration */
+export interface WalletSecurityConfig {
+  /** Encryption algorithm used */
+  encryption: 'aes-256-gcm' | 'chacha20-poly1305';
+  /** Key derivation function */
+  kdf: 'pbkdf2' | 'scrypt' | 'argon2id';
+  /** KDF iterations/parameters */
+  kdfParams: Record<string, number>;
+  /** Whether biometric unlock is enabled */
+  biometricEnabled?: boolean;
+  /** Hardware security module integration */
+  hsmConfig?: {
+    provider: string;
+    keyId: string;
+  };
+}
+
+/** Multi-signature wallet configuration */
+export interface MultiSigWalletConfig {
+  /** Required signatures for transactions */
+  threshold: number;
+  /** Authorized signers */
+  signers: Array<{
+    publicKey: string;
+    weight: number;
+    label?: string;
+  }>;
+  /** Transaction approval workflow */
+  approvalWorkflow?: {
+    requireManualApproval: boolean;
+    approvers: string[];
+    timeoutMs: number;
+  };
+}
+
+/** Hardware wallet interface */
+export interface HardwareWalletInfo {
+  /** Hardware wallet type */
+  type: 'ledger' | 'trezor' | 'keepkey';
+  /** Device connection status */
+  connected: boolean;
+  /** Device firmware version */
+  firmwareVersion: string;
+  /** Supported applications */
+  supportedApps: string[];
+  /** Device-specific metadata */
+  deviceMetadata: Record<string, unknown>;
+}
+
+/** Transaction performance metrics */
+export interface TransactionMetrics {
+  /** Transaction build time in ms */
+  buildTimeMs: number;
+  /** Signature time in ms */
+  signTimeMs: number;
+  /** Network submission time in ms */
+  submitTimeMs: number;
+  /** Total confirmation time in ms */
+  confirmTimeMs: number;
+  /** Network fee paid */
+  feePaid: string;
+  /** Resource consumption */
+  resourceUsage: {
+    cpuInstructions: number;
+    memoryBytes: number;
+    storageBytes: number;
+  };
+}
+
+/** Order completion analytics */
+export interface OrderAnalytics {
+  /** Order processing stages with timestamps */
+  stages: Array<{
+    stage: string;
+    timestamp: string;
+    durationMs?: number;
+  }>;
+  /** Performance metrics */
+  metrics: {
+    totalProcessingTimeMs: number;
+    paymentConfirmationTimeMs: number;
+    cardIssuanceTimeMs: number;
+  };
+  /** Geographic data if available */
+  location?: {
+    country: string;
+    region?: string;
+    city?: string;
+  };
+}
+
+/** Environment-specific configuration */
+export interface EnvironmentConfig {
+  /** Environment name */
+  environment: 'development' | 'staging' | 'production' | 'test';
+  /** Debug mode enabled */
+  debug: boolean;
+  /** Logging configuration */
+  logging: {
+    level: 'debug' | 'info' | 'warn' | 'error';
+    destinations: Array<'console' | 'file' | 'remote'>;
+    format: 'json' | 'text';
+  };
+  /** Feature flags */
+  features: Record<string, boolean>;
+  /** Rate limiting configuration */
+  rateLimits: {
+    requestsPerSecond: number;
+    burstCapacity: number;
+    windowSizeMs: number;
+  };
+}
+
+/** SDK configuration with all options */
+export interface ComprehensiveSDKConfig {
+  /** API credentials */
+  apiKey: string;
+  /** API base URL */
+  baseUrl?: string;
+  /** Network configuration */
+  network?: ExtendedNetworkConfig;
+  /** HTTP client configuration */
+  httpConfig?: AdvancedHttpConfig;
+  /** Wallet configuration */
+  walletConfig?: {
+    type: 'ows' | 'raw-keypair' | 'hardware';
+    name?: string;
+    security?: WalletSecurityConfig;
+  };
+  /** Environment configuration */
+  environment?: EnvironmentConfig;
+}
+
+// ============================================================================
+// ENHANCED TYPE GUARDS & VALIDATORS
+// ============================================================================
+
+/** Enhanced type guard for API responses */
+export function isValidApiResponse<T>(response: unknown, validator: (data: unknown) => data is T): response is { data: T; status: number } {
+  return (
+    typeof response === 'object' &&
+    response !== null &&
+    'data' in response &&
+    'status' in response &&
+    typeof (response as { status: unknown }).status === 'number' &&
+    validator((response as { data: unknown }).data)
+  );
+}
+
+/** Type guard for network configuration */
+export function isValidNetworkConfig(config: unknown): config is ExtendedNetworkConfig {
+  return (
+    typeof config === 'object' &&
+    config !== null &&
+    (!('networkPassphrase' in config) || typeof (config as { networkPassphrase: unknown }).networkPassphrase === 'string')
+  );
+}
+
+/** Type guard for wallet keypair */
+export function isValidWalletKeypair(keypair: unknown): keypair is WalletKeypair {
+  return (
+    typeof keypair === 'object' &&
+    keypair !== null &&
+    'publicKey' in keypair &&
+    'secret' in keypair &&
+    typeof (keypair as { publicKey: unknown }).publicKey === 'string' &&
+    typeof (keypair as { secret: unknown }).secret === 'string' &&
+    (keypair as { publicKey: string }).publicKey.startsWith('G') &&
+    (keypair as { secret: string }).secret.startsWith('S')
+  );
+}
+
+/** Type guard for order status */
+export function isValidOrderStatus(status: unknown): status is ExtendedOrderStatus {
+  return (
+    typeof status === 'object' &&
+    status !== null &&
+    'order_id' in status &&
+    'status' in status &&
+    'phase' in status &&
+    typeof (status as { order_id: unknown }).order_id === 'string' &&
+    typeof (status as { status: unknown }).status === 'string' &&
+    isOrderPhase((status as { phase: unknown }).phase)
+  );
+}
+
+// ============================================================================
+// ADVANCED UTILITY TYPES
+// ============================================================================
+
+/** Extract promise result type */
+export type PromiseResult<T> = T extends Promise<infer U> ? U : never;
+
+/** Make specific properties required */
+export type RequireFields<T, K extends keyof T> = T & Required<Pick<T, K>>;
+
+/** Make specific properties optional */
+export type PartialFields<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
+
+/** Create a union type from object values */
+export type ValueOf<T> = T[keyof T];
+
+/** Recursive readonly type */
+export type DeepReadonly<T> = {
+  readonly [P in keyof T]: T[P] extends object ? DeepReadonly<T[P]> : T[P];
+};
+
+/** Mutable version of readonly type */
+export type Mutable<T> = {
+  -readonly [P in keyof T]: T[P];
+};
+
+/** Function that returns a promise */
+export type AsyncFn<TArgs extends readonly unknown[] = readonly unknown[], TReturn = unknown> = 
+  (...args: TArgs) => Promise<TReturn>;
+
+/** Non-nullable version of type */
+export type StrictNonNullable<T> = T extends null | undefined ? never : T;
+
+/** JSON-serializable version of type */
+export type JSONSerializable<T> = T extends string | number | boolean | null
+  ? T
+  : T extends readonly (infer U)[]
+  ? readonly JSONSerializable<U>[]
+  : T extends { [key: string]: unknown }
+  ? { [K in keyof T]: JSONSerializable<T[K]> }
+  : never;

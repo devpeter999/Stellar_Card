@@ -47,11 +47,52 @@ export interface WalletInfo {
   secret: string; // Keep safe — never share
 }
 
+/**
+ * Create a new random Stellar wallet keypair.
+ *
+ * @returns An object containing the public key (G-address) and secret key (S-address)
+ * @warning The secret key should be kept secure and never shared or logged
+ *
+ * @example
+ * ```typescript
+ * const wallet = createWallet();
+ * console.log('Public key:', wallet.publicKey); // G...
+ * // Store wallet.secret securely - never log or transmit it
+ * ```
+ */
 export function createWallet(): WalletInfo {
   const keypair = Keypair.random();
   return { publicKey: keypair.publicKey(), secret: keypair.secret() };
 }
 
+/**
+ * Get XLM and USDC balances for a Stellar account.
+ *
+ * @param publicKey - The Stellar public key (G-address) to query
+ * @param networkPassphrase - Optional network passphrase (defaults to mainnet)
+ * @returns Promise resolving to balance object with xlm and usdc as decimal strings
+ * @throws {Error} When the account is not found or Horizon request fails
+ *
+ * @example
+ * ```typescript
+ * const balance = await getBalance('GXXXXXXX...', Networks.TESTNET);
+ * console.log(`Available: ${balance.xlm} XLM, ${balance.usdc} USDC`);
+ * ```
+ */
+/**
+ * Get XLM and USDC balances for a Stellar account.
+ *
+ * @param publicKey - The Stellar public key (G-address) to query
+ * @param networkPassphrase - Optional network passphrase (defaults to mainnet)
+ * @returns Promise resolving to balance object with xlm and usdc as decimal strings
+ * @throws {Error} When the account is not found or Horizon request fails
+ *
+ * @example
+ * ```typescript
+ * const balance = await getBalance('GXXXXXXX...', Networks.TESTNET);
+ * console.log(`Available: ${balance.xlm} XLM, ${balance.usdc} USDC`);
+ * ```
+ */
 export async function getBalance(
   publicKey: string,
   networkPassphrase?: string,
@@ -72,6 +113,23 @@ export async function getBalance(
   return { xlm, usdc };
 }
 
+/**
+ * Add a USDC trustline to a Stellar account.
+ *
+ * This allows the account to hold USDC tokens from the recognized issuer.
+ * The operation costs ~0.00001 XLM in network fees.
+ *
+ * @param secret - The Stellar secret key (S-address) for the account
+ * @param networkPassphrase - The Stellar network to operate on (defaults to mainnet)
+ * @returns Promise resolving to the transaction hash
+ * @throws {Error} When the account is not found, has insufficient XLM, or the transaction fails
+ *
+ * @example
+ * ```typescript
+ * const txHash = await addUsdcTrustline('SXXXXXXX...', Networks.TESTNET);
+ * console.log('Trustline added in transaction:', txHash);
+ * ```
+ */
 export async function addUsdcTrustline(
   secret: string,
   networkPassphrase = Networks.PUBLIC,

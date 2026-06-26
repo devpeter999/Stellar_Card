@@ -10,9 +10,35 @@ export interface ExponentialBackoffDelayOptions {
   /** Optional Retry-After header value from the server. */
   retryAfter?: string | null;
   /** Jitter mode. Full jitter is the default. */
-  jitter?: 'full' | 'none';
+  jitter?: 'full' | 'equal' | 'decorrelated' | 'none';
   /** Override the current clock for tests. */
   nowMs?: number;
+}
+
+/**
+ * Advanced retry strategy configuration
+ */
+export interface AdvancedRetryStrategy {
+  /** Maximum number of retry attempts */
+  maxAttempts: number;
+  /** Base delay between retries in milliseconds */
+  baseDelayMs: number;
+  /** Maximum delay cap in milliseconds */
+  maxDelayMs: number;
+  /** Exponential backoff multiplier */
+  multiplier: number;
+  /** Jitter strategy to avoid thundering herd */
+  jitterStrategy: 'full' | 'equal' | 'decorrelated' | 'none';
+  /** Custom retry condition predicate */
+  shouldRetry?: (error: unknown, attempt: number) => boolean;
+  /** Backoff strategy */
+  backoffStrategy: 'exponential' | 'linear' | 'fixed';
+  /** Circuit breaker configuration */
+  circuitBreaker?: {
+    failureThreshold: number;
+    recoveryTimeoutMs: number;
+    monitoringPeriodMs: number;
+  };
 }
 
 /**
@@ -21,6 +47,17 @@ export interface ExponentialBackoffDelayOptions {
  * Supports both delta-seconds (`120`) and HTTP-date values. Returns
  * `null` for empty or malformed headers so callers can fall back to
  * client-side retry policy.
+ *
+ * @param retryAfter - The Retry-After header value from the server response
+ * @param nowMs - Current timestamp in milliseconds (defaults to Date.now())
+ * @returns Delay in milliseconds, or null if the header is invalid
+ *
+ * @example
+ * ```typescript
+ * const delayMs = parseRetryAfterMs('120'); // 120000 (120 seconds)
+ * const delayMs2 = parseRetryAfterMs('Wed, 21 Oct 2015 07:28:00 GMT');
+ * const delayMs3 = parseRetryAfterMs('invalid'); // null
+ * ```
  */
 export function parseRetryAfterMs(
   retryAfter: string | null | undefined,
@@ -43,10 +80,14 @@ export function parseRetryAfterMs(
 /**
  * Compute a capped exponential backoff delay for an API retry attempt.
  *
- * Full jitter spreads clients across the entire retry window to avoid
- * synchronized retries. When the server provides `Retry-After`, that
- * value is treated as a minimum delay and can extend the client-side
- * backoff.
+ * Supports multiple jitter strategies:
+ * - full: Random delay between 0 and computed delay (default)
+ * - equal: Half computed delay + half random
+ * - decorrelated: Uses previous delay to compute next delay
+ * - none: No jitter, use computed delay as-is
+ *
+ * When the server provides `Retry-After`, that value is treated as a
+ * minimum delay and can extend the client-side backoff.
  */
 export function calculateExponentialBackoffDelay(
   opts: ExponentialBackoffDelayOptions,
@@ -54,10 +95,88 @@ export function calculateExponentialBackoffDelay(
   const factor = opts.factor ?? 2;
   const jitter = opts.jitter ?? 'full';
   const cappedDelay = Math.min(opts.baseDelayMs * Math.pow(factor, opts.attempt), opts.maxDelayMs);
-  const jitteredDelay =
-    jitter === 'none' ? cappedDelay : Math.floor(Math.random() * Math.max(cappedDelay, 1));
+  
+  let jitteredDelay: number;
+  
+  switch (jitter) {
+    case 'none':
+      jitteredDelay = cappedDelay;
+      break;
+    case 'equal':
+      jitteredDelay = cappedDelay * 0.5 + Math.random() * cappedDelay * 0.5;
+      break;
+    case 'decorrelated':
+      // Decorrelated jitter: delay = random(baseDelay, prevDelay * 3)
+      // For first attempt, use base delay
+      if (opts.attempt === 0) {
+        jitteredDelay = opts.baseDelayMs;
+      } else {
+        const prevDelay = Math.min(opts.baseDelayMs * Math.pow(factor, opts.attempt - 1), opts.maxDelayMs);
+        jitteredDelay = Math.random() * (prevDelay * 3 - opts.baseDelayMs) + opts.baseDelayMs;
+      }
+      jitteredDelay = Math.min(jitteredDelay, opts.maxDelayMs);
+      break;
+    case 'full':
+    default:
+      jitteredDelay = Math.floor(Math.random() * Math.max(cappedDelay, 1));
+      break;
+  }
+  
   const retryAfterMs = parseRetryAfterMs(opts.retryAfter, opts.nowMs);
   return retryAfterMs === null ? jitteredDelay : Math.max(jitteredDelay, retryAfterMs);
+}
+
+/**
+ * Advanced retry implementation with circuit breaker support
+ */
+export async function withAdvancedRetry<T>(
+  fn: (attempt: number) => Promise<T>,
+  strategy: AdvancedRetryStrategy
+): Promise<T> {
+  let lastError: unknown;
+  
+  for (let attempt = 0; attempt < strategy.maxAttempts; attempt++) {
+    try {
+      return await fn(attempt);
+    } catch (error) {
+      lastError = error;
+      
+      // Check if we should retry this error
+      if (strategy.shouldRetry && !strategy.shouldRetry(error, attempt)) {
+        throw error;
+      }
+      
+      // Don't delay on the last attempt
+      if (attempt === strategy.maxAttempts - 1) {
+        throw error;
+      }
+      
+      // Calculate delay based on backoff strategy
+      let delay: number;
+      switch (strategy.backoffStrategy) {
+        case 'linear':
+          delay = strategy.baseDelayMs * (attempt + 1);
+          break;
+        case 'fixed':
+          delay = strategy.baseDelayMs;
+          break;
+        case 'exponential':
+        default:
+          delay = calculateExponentialBackoffDelay({
+            attempt,
+            baseDelayMs: strategy.baseDelayMs,
+            maxDelayMs: strategy.maxDelayMs,
+            factor: strategy.multiplier,
+            jitter: strategy.jitterStrategy,
+          });
+          break;
+      }
+      
+      await sleep(Math.min(delay, strategy.maxDelayMs));
+    }
+  }
+  
+  throw lastError ?? new Error('Advanced retry: maximum attempts reached');
 }
 
 /**
