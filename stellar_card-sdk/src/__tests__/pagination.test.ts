@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { paginate, iteratePages, type PaginationCursor } from '../pagination';
+import { paginate, iteratePages, collectAllPages, type PaginationCursor } from '../pagination';
 
 // ── paginate ──────────────────────────────────────────────────────────────────
 
@@ -134,5 +134,36 @@ describe('iteratePages', () => {
     }
     // Items 7, 8, 9
     expect(items).toEqual([7, 8, 9]);
+  });
+});
+
+// ── collectAllPages ───────────────────────────────────────────────────────────
+
+describe('collectAllPages', () => {
+  function makeSource(total: number) {
+    const data = Array.from({ length: total }, (_, i) => i);
+    return async (cur: PaginationCursor) => data.slice(cur.offset, cur.offset + cur.limit);
+  }
+
+  it('returns all items in a single array', async () => {
+    const result = await collectAllPages({ fetchPage: makeSource(45), limit: 20 });
+    expect(result).toHaveLength(45);
+    expect(result[0]).toBe(0);
+    expect(result[44]).toBe(44);
+  });
+
+  it('returns empty array for empty source', async () => {
+    const result = await collectAllPages({ fetchPage: async () => [] });
+    expect(result).toEqual([]);
+  });
+
+  it('respects maxItems', async () => {
+    const result = await collectAllPages({ fetchPage: makeSource(100), limit: 20, maxItems: 35 });
+    expect(result).toHaveLength(35);
+  });
+
+  it('respects initialOffset', async () => {
+    const result = await collectAllPages({ fetchPage: makeSource(10), initialOffset: 7, limit: 5 });
+    expect(result).toEqual([7, 8, 9]);
   });
 });

@@ -92,7 +92,7 @@ export type { MppChargeOpts, MppChargeResult } from './mpp';
 export { loadStellar_CardConfig, saveStellar_CardConfig, resolveCredentials } from './config';
 export type { Stellar_CardConfig } from './config';
 
-export { paginate, iteratePages } from './pagination';
+export { paginate, iteratePages, collectAllPages } from './pagination';
 export type {
   PaginationCursor,
   PaginatedResult,

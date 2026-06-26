@@ -62,7 +62,19 @@ Four approaches to fetching order history:
 CARDS402_API_KEY=... node examples/list-orders.js
 ```
 
-### 5. [mcp-usage.js](./mcp-usage.js) - Model Context Protocol
+### 5. [budget-management.js](./budget-management.js) - Budget Management
+
+Check spend limits before purchasing and summarize order history:
+- Fetch and display current budget usage
+- Guard against overspend before creating an order
+- Handle `SpendLimitError` from concurrent agents
+- Collect full order history with `collectAllPages`
+
+```bash
+CARDS402_API_KEY=... node examples/budget-management.js
+```
+
+### 6. [mcp-usage.js](./mcp-usage.js) - Model Context Protocol
 
 Shows how to use stellar_card as an MCP server for LLM integration. Includes:
 - All available MCP tools
