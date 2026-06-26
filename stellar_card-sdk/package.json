@@ -3,11 +3,18 @@
   "version": "0.4.7",
   "description": "Virtual Visa cards for AI agents — pay USDC or XLM on Stellar, get a card in ~60s",
   "main": "dist/index.js",
+  "module": "dist/esm/index.js",
   "types": "dist/index.d.ts",
+  "sideEffects": false,
   "exports": {
     ".": {
+      "browser": {
+        "types": "./dist/browser.d.ts",
+        "import": "./dist/esm/browser.js",
+        "default": "./dist/browser.js"
+      },
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
+      "import": "./dist/esm/index.js",
       "require": "./dist/index.js"
     },
     "./browser": {
@@ -44,10 +51,10 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && tsc -p tsconfig.esm.json",
     "dev": "tsc --watch",
     "lint": "eslint src",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.esm.json --noEmit",
     "test": "vitest run",
     "prepublishOnly": "npm run build && npm test"
   },
