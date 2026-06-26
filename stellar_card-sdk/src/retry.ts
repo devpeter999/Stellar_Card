@@ -60,7 +60,99 @@ export function calculateExponentialBackoffDelay(
   return retryAfterMs === null ? jitteredDelay : Math.max(jitteredDelay, retryAfterMs);
 }
 
-/** Sleep for the requested number of milliseconds. */
+/**
+ * Sleep for the requested number of milliseconds.
+ *
+ * @param ms - Duration to wait in milliseconds. Values ≤ 0 resolve immediately.
+ * @returns A promise that resolves after the specified delay.
+ */
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Options for {@link withRetry}.
+ *
+ * @template T - The resolved value type of the operation being retried.
+ */
+export interface WithRetryOptions<T> {
+  /**
+   * The async operation to attempt. Receives the zero-based attempt index
+   * (0 on the first call, 1 on the first retry, …).
+   */
+  fn: (attempt: number) => Promise<T>;
+  /**
+   * Maximum number of additional attempts after the first failure.
+   * Set to 0 to disable retries (only one attempt total). Defaults to 2.
+   */
+  maxRetries?: number;
+  /**
+   * Initial delay before the first retry, in milliseconds. Doubles on
+   * each subsequent attempt. Defaults to 500.
+   */
+  baseDelayMs?: number;
+  /**
+   * Upper cap on the computed delay, in milliseconds. Defaults to 10000.
+   */
+  maxDelayMs?: number;
+  /**
+   * Predicate that decides whether a thrown error is retryable.
+   * Return `true` to retry, `false` to rethrow immediately.
+   * Defaults to retrying all errors.
+   */
+  isRetryable?: (err: unknown, attempt: number) => boolean;
+  /**
+   * Optional callback invoked before each retry sleep.
+   * Useful for logging or emitting metrics without coupling to a logger.
+   */
+  onRetry?: (err: unknown, attempt: number, delayMs: number) => void;
+}
+
+/**
+ * Run an async operation with exponential backoff retries.
+ *
+ * The delay between attempts is computed with {@link calculateExponentialBackoffDelay}
+ * (full jitter by default), so concurrent callers naturally spread across
+ * the retry window and avoid thundering-herd bursts against the API.
+ *
+ * @example
+ * const card = await withRetry({
+ *   fn: () => client.createOrder({ amount_usdc: '10.00' }),
+ *   maxRetries: 3,
+ *   baseDelayMs: 500,
+ *   isRetryable: (err) => err instanceof RateLimitError || err instanceof ServiceUnavailableError,
+ * });
+ *
+ * @template T - The resolved value type of the operation.
+ * @param opts - Retry configuration.
+ * @returns The value returned by `fn` on a successful attempt.
+ * @throws The last error thrown by `fn` when all attempts are exhausted,
+ *         or immediately if `isRetryable` returns `false`.
+ */
+export async function withRetry<T>(opts: WithRetryOptions<T>): Promise<T> {
+  const maxRetries = opts.maxRetries ?? 2;
+  const baseDelayMs = opts.baseDelayMs ?? 500;
+  const maxDelayMs = opts.maxDelayMs ?? 10000;
+  const isRetryable = opts.isRetryable ?? (() => true);
+
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await opts.fn(attempt);
+    } catch (err) {
+      lastErr = err;
+      if (attempt === maxRetries || !isRetryable(err, attempt)) {
+        throw err;
+      }
+      const delayMs = calculateExponentialBackoffDelay({
+        attempt,
+        baseDelayMs,
+        maxDelayMs,
+      });
+      opts.onRetry?.(err, attempt, delayMs);
+      await sleep(delayMs);
+    }
+  }
+  // Unreachable — the loop always returns or throws before exhausting.
+  throw lastErr;
 }

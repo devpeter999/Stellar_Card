@@ -50,7 +50,19 @@ Comprehensive examples of handling different error types:
 node examples/error-handling.js
 ```
 
-### 4. [mcp-usage.js](./mcp-usage.js) - Model Context Protocol
+### 4. [list-orders.js](./list-orders.js) - Order Listing & Pagination
+
+Four approaches to fetching order history:
+- Simple list with `listOrders`
+- Manual page-by-page with `listOrdersPage`
+- Automatic async iteration with `iterateOrders`
+- Budget-gating with `getUsage` before creating an order
+
+```bash
+CARDS402_API_KEY=... node examples/list-orders.js
+```
+
+### 5. [mcp-usage.js](./mcp-usage.js) - Model Context Protocol
 
 Shows how to use stellar_card as an MCP server for LLM integration. Includes:
 - All available MCP tools

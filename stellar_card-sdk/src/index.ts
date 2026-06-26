@@ -19,8 +19,8 @@ export type {
   StellarCardClientOptions,
 } from './client';
 
-export { calculateExponentialBackoffDelay, parseRetryAfterMs, sleep } from './retry';
-export type { ExponentialBackoffDelayOptions } from './retry';
+export { calculateExponentialBackoffDelay, parseRetryAfterMs, sleep, withRetry } from './retry';
+export type { ExponentialBackoffDelayOptions, WithRetryOptions } from './retry';
 
 export {
   createWallet,
