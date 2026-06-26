@@ -1,5 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
-import { paginate, iteratePages, collectAllPages, type PaginationCursor } from '../pagination';
+import {
+  paginate,
+  iteratePages,
+  collectAllPages,
+  mapPaginated,
+  type PaginationCursor,
+} from '../pagination';
+
+// fetchPage backed by an in-memory array.
+const arraySource =
+  <T,>(source: T[]) =>
+  async (cur: PaginationCursor): Promise<T[]> =>
+    source.slice(cur.offset, cur.offset + cur.limit);
 
 // ── paginate ──────────────────────────────────────────────────────────────────
 
@@ -165,5 +177,35 @@ describe('collectAllPages', () => {
   it('respects initialOffset', async () => {
     const result = await collectAllPages({ fetchPage: makeSource(10), initialOffset: 7, limit: 5 });
     expect(result).toEqual([7, 8, 9]);
+  });
+});
+
+// ── mapPaginated ──────────────────────────────────────────────────────────────
+
+describe('mapPaginated', () => {
+  it('applies the transform to every item with a running index', async () => {
+    const source = ['a', 'b', 'c', 'd'];
+    const out: string[] = [];
+    for await (const v of mapPaginated({
+      fetchPage: arraySource(source),
+      limit: 2,
+      transform: (item, i) => `${i}:${item}`,
+    })) {
+      out.push(v);
+    }
+    expect(out).toEqual(['0:a', '1:b', '2:c', '3:d']);
+  });
+
+  it('supports async transforms', async () => {
+    const source = [1, 2, 3];
+    const out: number[] = [];
+    for await (const v of mapPaginated({
+      fetchPage: arraySource(source),
+      limit: 10,
+      transform: async (n) => n * 2,
+    })) {
+      out.push(v);
+    }
+    expect(out).toEqual([2, 4, 6]);
   });
 });

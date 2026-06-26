@@ -150,3 +150,36 @@ export async function* iteratePages<T>(
     cursor = page.nextCursor;
   }
 }
+
+/** Options accepted by {@link mapPaginated}. */
+export interface MapPaginatedOptions<T, R> extends IteratePagesOptions<T> {
+  /**
+   * Transform applied to every item as it is streamed. Receives the item and
+   * its zero-based index across the whole result set. May be async.
+   */
+  transform: (item: T, index: number) => R | Promise<R>;
+}
+
+/**
+ * Iterate every item across all pages, applying `transform` to each one.
+ *
+ * Like {@link iteratePages}, memory stays bounded to a single page (plus the
+ * in-flight transformed value) regardless of total item count. The transform
+ * receives the running index so callers can number rows across page
+ * boundaries.
+ *
+ * @example
+ * for await (const id of mapPaginated({ fetchPage, transform: (o) => o.id })) {
+ *   console.log(id);
+ * }
+ */
+export async function* mapPaginated<T, R>(
+  opts: MapPaginatedOptions<T, R>,
+): AsyncGenerator<R, void, void> {
+  const { transform, ...iterOpts } = opts;
+  let index = 0;
+  for await (const item of iteratePages<T>(iterOpts)) {
+    yield await transform(item, index);
+    index++;
+  }
+}

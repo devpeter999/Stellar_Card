@@ -92,20 +92,23 @@ export type { MppChargeOpts, MppChargeResult } from './mpp';
 export { loadStellar_CardConfig, saveStellar_CardConfig, resolveCredentials } from './config';
 export type { Stellar_CardConfig } from './config';
 
-export { paginate, iteratePages, collectAllPages } from './pagination';
+export { paginate, iteratePages, collectAllPages, mapPaginated } from './pagination';
 export type {
   PaginationCursor,
   PaginatedResult,
   PaginateOptions,
   IteratePagesOptions,
+  MapPaginatedOptions,
 } from './pagination';
 
 export {
   resolveNetworkConfig,
+  resolveNetworkConfigFromEnv,
   getDefaultSorobanRpcUrl,
   getDefaultHorizonUrl,
   createCustomNetworkConfig,
   validateRpcEndpoint,
+  NETWORK_ENV_VARS,
 } from './network';
 export type {
   NetworkConfig,
