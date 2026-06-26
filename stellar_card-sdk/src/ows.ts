@@ -55,7 +55,13 @@ function withTimeout<T>(promise: Promise<T>, ms = 15000): Promise<T> {
 
 // ── Wallet helpers ────────────────────────────────────────────────────────────
 
-/** Extract the Stellar G-address from an OWS WalletInfo. */
+/**
+ * Extract the Stellar G-address from an OWS WalletInfo.
+ *
+ * @param wallet - The OWS wallet information object
+ * @returns The Stellar public key (G-address) for the wallet
+ * @throws {Error} When the wallet has no Stellar account configured
+ */
 function getStellarAddress(wallet: WalletInfo): string {
   const account = wallet.accounts.find((a) => a.chainId.includes('stellar'));
   if (!account) throw new Error(`OWS wallet "${wallet.name}" has no Stellar account`);
@@ -116,13 +122,40 @@ export function importStellarKey(
   return { walletId: wallet.id, publicKey: getStellarAddress(wallet) };
 }
 
-/** Get the Stellar public key (G-address) for a named OWS wallet. */
+/**
+ * Get the Stellar public key (G-address) for a named OWS wallet.
+ *
+ * @param walletName - The name of the OWS wallet to query
+ * @param vaultPath - Optional custom path to the OWS vault directory
+ * @returns The Stellar public key (G-address) for the wallet
+ * @throws {Error} When the wallet is not found or has no Stellar account
+ *
+ * @example
+ * ```typescript
+ * const publicKey = getOWSPublicKey('my-agent-wallet');
+ * console.log('Wallet address:', publicKey); // G...
+ * ```
+ */
 export function getOWSPublicKey(walletName: string, vaultPath?: string): string {
   const wallet = owsGet(walletName, vaultPath ?? null);
   return getStellarAddress(wallet);
 }
 
-/** Check XLM and USDC balances for an OWS wallet. */
+/**
+ * Check XLM and USDC balances for an OWS wallet.
+ *
+ * @param walletName - The name of the OWS wallet to check
+ * @param vaultPath - Optional custom path to the OWS vault directory
+ * @param networkPassphrase - Optional Stellar network passphrase (defaults to mainnet)
+ * @returns Promise resolving to an object containing XLM and USDC balances as decimal strings
+ * @throws {Error} When the wallet is not found or Horizon request fails
+ *
+ * @example
+ * ```typescript
+ * const balance = await getOWSBalance('my-agent-wallet');
+ * console.log(`XLM: ${balance.xlm}, USDC: ${balance.usdc}`);
+ * ```
+ */
 export async function getOWSBalance(
   walletName: string,
   vaultPath?: string,

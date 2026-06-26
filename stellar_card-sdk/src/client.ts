@@ -330,21 +330,27 @@ export class Stellar_CardClient {
         const res = await fetch(url, init);
         if (res.ok || !this.shouldRetry(res.status) || i === attempts) return res;
         lastErr = new Error(`HTTP ${res.status}`);
+        // Enhanced exponential backoff with full jitter and Retry-After header support
         const delayMs = calculateExponentialBackoffDelay({
           attempt: i,
           baseDelayMs,
           maxDelayMs,
           retryAfter: res.headers?.get?.('Retry-After') ?? null,
+          jitter: 'full', // Use full jitter to avoid thundering herd
+          factor: 2, // Standard exponential backoff factor
         });
         await sleep(delayMs);
         continue;
       } catch (err) {
         lastErr = err;
         if (i === attempts) throw err;
+        // Enhanced exponential backoff for network errors
         const delayMs = calculateExponentialBackoffDelay({
           attempt: i,
           baseDelayMs,
           maxDelayMs,
+          jitter: 'full',
+          factor: 2,
         });
         await sleep(delayMs);
       }
