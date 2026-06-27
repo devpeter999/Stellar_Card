@@ -6,6 +6,7 @@ import {
   getDefaultSorobanRpcUrl,
   getDefaultHorizonUrl,
   NETWORK_ENV_VARS,
+  validateRpcEndpoint,
 } from '../network';
 
 describe('resolveNetworkConfig', () => {
@@ -150,5 +151,17 @@ describe('resolveNetworkConfigFromEnv', () => {
   it('rejects a non-positive-integer timeout', () => {
     setEnv(NETWORK_ENV_VARS.timeout, 'not-a-number');
     expect(() => resolveNetworkConfigFromEnv()).toThrow(/positive integer/);
+  });
+});
+
+describe('validateRpcEndpoint', () => {
+  it('allows valid HTTPS and HTTP URLs', () => {
+    expect(() => validateRpcEndpoint('https://rpc.stellar.org')).not.toThrow();
+    expect(() => validateRpcEndpoint('http://localhost:8000')).not.toThrow();
+  });
+
+  it('rejects invalid URL structures or protocols', () => {
+    expect(() => validateRpcEndpoint('invalid-url')).toThrow(/Invalid RPC endpoint URL/);
+    expect(() => validateRpcEndpoint('ftp://rpc.stellar.org')).toThrow(/Invalid protocol: ftp/);
   });
 });
