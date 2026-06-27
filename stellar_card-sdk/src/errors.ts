@@ -442,15 +442,18 @@ export function parseApiError(
 
 /**
  * Wrap an unknown error with context.
- * If it's already a Stellar_CardError, enhance its context.
- * Otherwise, wrap it in a generic Stellar_CardError with cause.
+ * If it's already a Stellar_CardError, enhance its context while preserving
+ * the original `raw` payload. Otherwise, wrap it in a generic Stellar_CardError
+ * with the original error recorded as `cause`.
  */
 export function wrapError(
   err: unknown,
   context: Partial<ErrorContext>,
 ): Stellar_CardError {
   if (err instanceof Stellar_CardError) {
-    // Enhance existing error with context
+    // Enhance existing error with context — preserve raw and merge contexts so
+    // callers higher up the stack can add operation/source without losing
+    // lower-level detail.
     return new Stellar_CardError(err.message, err.code, err.status, err.raw, {
       ...err.context,
       ...context,
@@ -462,6 +465,103 @@ export function wrapError(
     cause: err instanceof Error ? err : new Error(String(err)),
     ...context,
   });
+}
+
+/**
+ * Wrap a validation error for a specific field.
+ *
+ * Convenience wrapper around {@link ValidationError} that standardises the
+ * context so callers don't have to construct the class directly.
+ *
+ * @param field   - The parameter or property that failed validation.
+ * @param reason  - Human-readable description of why validation failed.
+ * @param context - Optional extra context for debugging.
+ */
+export function wrapValidationError(
+  field: string,
+  reason: string,
+  context?: Partial<ErrorContext>,
+): ValidationError {
+  const err = new ValidationError(field, reason);
+  if (context) {
+    // Return an enriched copy that keeps ValidationError identity.
+    Object.assign(err, {
+      context: {
+        source: context.source,
+        operation: context.operation,
+        recoveryHint: context.recoveryHint,
+        metadata: context.metadata,
+        cause: context.cause,
+      },
+    });
+  }
+  return err;
+}
+
+/**
+ * Build a human-readable error chain string from a series of nested causes.
+ *
+ * Useful for structured logging where you want to record the full causal
+ * chain without serialising the entire Error prototype tree.
+ *
+ * @param err - The top-level error.
+ * @returns A string like `"outer: inner: root cause"`.
+ *
+ * @example
+ * ```typescript
+ * catch (err) {
+ *   logger.error({ chain: buildErrorChain(err) }, 'Operation failed');
+ * }
+ * ```
+ */
+export function buildErrorChain(err: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = err;
+  const seen = new Set<unknown>();
+
+  while (current != null && !seen.has(current)) {
+    seen.add(current);
+    if (current instanceof Stellar_CardError) {
+      parts.push(current.message);
+      current = current.context?.cause;
+    } else if (current instanceof Error) {
+      parts.push(current.message);
+      // `cause` is standard in ES2022+ Error but not always typed.
+      current = (current as Error & { cause?: unknown }).cause;
+    } else {
+      parts.push(String(current));
+      break;
+    }
+  }
+
+  return parts.join(' → ');
+}
+
+/**
+ * Returns `true` for error types that are safe to retry by default:
+ * {@link RateLimitError}, {@link ServiceUnavailableError},
+ * {@link NetworkError}, {@link TimeoutError}, and {@link PriceUnavailableError}.
+ *
+ * Use this as a sensible default for `isRetryable` in {@link withRetry} when
+ * you don't need custom logic.
+ *
+ * @example
+ * ```typescript
+ * const card = await withRetry({
+ *   fn: () => client.createOrder({ amount_usdc: '10.00' }),
+ *   maxRetries: 3,
+ *   isRetryable: isRetryableByDefault,
+ * });
+ * ```
+ */
+export function isRetryableByDefault(err: unknown): boolean {
+  return (
+    err instanceof RateLimitError ||
+    err instanceof ServiceUnavailableError ||
+    err instanceof NetworkError ||
+    err instanceof TimeoutError ||
+    err instanceof PriceUnavailableError
+  );
 }
 
 /**
