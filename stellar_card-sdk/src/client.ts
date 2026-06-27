@@ -139,8 +139,11 @@ export interface CreateOrderOptions extends OrderOptions {
 export interface WaitForCardOptions {
   /** Total time budget for SSE + polling fallback. Defaults to 300000ms. */
   timeoutMs?: number;
-  /** Poll interval when SSE is unavailable. Defaults to 3000ms. */
-  intervalMs?: number;
+  /**
+   * Polling interval in milliseconds used by the HTTP-polling fallback
+   * when the SSE stream is unavailable. Defaults to 3000ms.
+   */
+  pollIntervalMs?: number;
 }
 
 export interface ListOrdersOptions {
@@ -422,21 +425,13 @@ export class Stellar_CardClient {
    */
   async waitForCard(
     orderId: string,
-    { timeoutMs = 300000, intervalMs = 3000 }: WaitForCardOptions = {},
+    { timeoutMs = 300000, pollIntervalMs = 3000 }: WaitForCardOptions = {},
   ): Promise<CardDetails> {
     validateOrderId(orderId);
-    // Shared deadline so an SSE attempt that eats most of the budget
-    // can't also grant polling its own full timeoutMs. Pre-fix, a
-    // stream that aborted at t=timeoutMs fell through to a polling
-    // loop that ran for another full timeoutMs — total wait 2×
-    // requested. Now the polling fallback inherits whatever time is
-    // left and the total stays within timeoutMs ± a few ms.
     const deadlineMs = Date.now() + timeoutMs;
     try {
       return await this.waitForCardStream(orderId, timeoutMs);
     } catch (err) {
-      // Typed order-lifecycle errors must propagate unchanged — the stream
-      // correctly reported a terminal failure / expiry / timeout.
       if (
         err instanceof OrderFailedError ||
         err instanceof WaitTimeoutError ||
@@ -444,15 +439,12 @@ export class Stellar_CardClient {
       ) {
         throw err;
       }
-      // An AbortError from the timer firing means we hit the stream's
-      // own deadline — that's a WaitTimeoutError, not "fall back to
-      // polling". Only genuine transport failures fall through.
       if (err instanceof Error && (err.name === 'AbortError' || err.message.includes('aborted'))) {
         throw new WaitTimeoutError(orderId, timeoutMs);
       }
       const remainingMs = Math.max(0, deadlineMs - Date.now());
       if (remainingMs === 0) throw new WaitTimeoutError(orderId, timeoutMs);
-      return this.waitForCardPoll(orderId, remainingMs, intervalMs);
+      return this.waitForCardPoll(orderId, remainingMs, pollIntervalMs);
     }
   }
 

@@ -757,3 +757,119 @@ export type JSONSerializable<T> = T extends string | number | boolean | null
   : T extends { [key: string]: unknown }
   ? { [K in keyof T]: JSONSerializable<T[K]> }
   : never;
+
+// ============================================================================
+// ADDITIONAL TYPINGS (#150)
+// ============================================================================
+
+/**
+ * Lightweight order summary for display, reporting, and analytics dashboards.
+ * A subset of {@link ExtendedOrderStatus} with only the fields needed for
+ * list views and aggregation.
+ */
+export interface OrderSummary {
+  /** Order identifier */
+  order_id: string;
+  /** Current status string */
+  status: string;
+  /** Ordered amount in USDC */
+  amount_usdc: string;
+  /** Payment asset used */
+  payment_asset: PaymentAsset;
+  /** Order creation timestamp (ISO-8601) */
+  created_at: string;
+  /** Whether the order is in a terminal state */
+  is_terminal: boolean;
+}
+
+/**
+ * Result returned once a card has been successfully issued.
+ * Extends the raw card fields from the API with a convenience
+ * `issued_at` timestamp and the originating `order_id`.
+ */
+export interface CardIssuanceResult {
+  /** Originating order identifier */
+  order_id: string;
+  /** 16-digit card number */
+  number: string;
+  /** 3-digit CVV */
+  cvv: string;
+  /** Expiry in MM/YY format */
+  expiry: string;
+  /** Card brand (e.g. "Visa"), or null when not provided */
+  brand: string | null;
+  /** ISO-8601 timestamp when the card was issued */
+  issued_at: string;
+}
+
+/**
+ * Pre-flight budget check result used to gate order creation.
+ *
+ * @example
+ * ```typescript
+ * const guard = await checkBudget(client, '25.00');
+ * if (!guard.allowed) {
+ *   console.error(guard.reason);
+ * } else {
+ *   await client.createOrder({ amount_usdc: '25.00' });
+ * }
+ * ```
+ */
+export interface BudgetGuard {
+  /** Whether the requested amount fits within the remaining budget */
+  allowed: boolean;
+  /** Human-readable reason when `allowed` is `false` */
+  reason?: string;
+  /** Requested amount in USDC */
+  requested_usdc: string;
+  /** Remaining budget after this order, or null when unlimited */
+  remaining_after_usdc: string | null;
+}
+
+/**
+ * SDK version information exposed via `getSdkVersion()` (if present) or
+ * bundled at build time for runtime compatibility checks.
+ */
+export interface StellarCardSDKVersion {
+  /** Semantic version string, e.g. `"0.4.7"` */
+  version: string;
+  /** Major version number */
+  major: number;
+  /** Minor version number */
+  minor: number;
+  /** Patch version number */
+  patch: number;
+  /** Optional pre-release identifier, e.g. `"beta.1"` */
+  prerelease?: string;
+}
+
+/**
+ * Type guard — narrows `value` to {@link OrderSummary}.
+ *
+ * Checks for the minimum required fields rather than every optional field
+ * so it handles both full API responses and trimmed list items.
+ */
+export function isOrderSummary(value: unknown): value is OrderSummary {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v['order_id'] === 'string' &&
+    typeof v['status'] === 'string' &&
+    typeof v['amount_usdc'] === 'string' &&
+    typeof v['created_at'] === 'string'
+  );
+}
+
+/**
+ * Type guard — narrows `value` to {@link CardIssuanceResult}.
+ */
+export function isCardIssuanceResult(value: unknown): value is CardIssuanceResult {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v['order_id'] === 'string' &&
+    typeof v['number'] === 'string' &&
+    typeof v['cvv'] === 'string' &&
+    typeof v['expiry'] === 'string'
+  );
+}

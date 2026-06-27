@@ -19,8 +19,8 @@ export type {
   StellarCardClientOptions,
 } from './client';
 
-export { calculateExponentialBackoffDelay, parseRetryAfterMs, sleep, withRetry } from './retry';
-export type { ExponentialBackoffDelayOptions, WithRetryOptions } from './retry';
+export { calculateExponentialBackoffDelay, parseRetryAfterMs, sleep, withRetry, withAdvancedRetry } from './retry';
+export type { ExponentialBackoffDelayOptions, WithRetryOptions, AdvancedRetryStrategy } from './retry';
 
 export {
   createWallet,
@@ -157,6 +157,11 @@ export type {
   AsyncFunction,
   Callback,
   EventEmitter,
+  // Additional typings (#150)
+  OrderSummary,
+  CardIssuanceResult,
+  BudgetGuard,
+  StellarCardSDKVersion,
 } from './types';
 
 export {
@@ -165,4 +170,6 @@ export {
   isNetworkType,
   hasErrorCode,
   isRetryableError,
+  isOrderSummary,
+  isCardIssuanceResult,
 } from './types';
