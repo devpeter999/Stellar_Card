@@ -85,6 +85,30 @@ Shows how to use stellar_card as an MCP server for LLM integration. Includes:
 node examples/mcp-usage.js
 ```
 
+### 7. [retry-strategy.js](./retry-strategy.js) - Retry Strategies
+
+Advanced retry patterns using the SDK's retry utilities:
+- Simple `withRetry` with full-jitter exponential backoff
+- Rate-limit-aware manual retry with increasing delays
+- `isRetryableByDefault` predicate for transient errors
+- `buildErrorChain` for structured error logging
+
+```bash
+CARDS402_API_KEY=... node examples/retry-strategy.js
+```
+
+### 8. [soroban-payment.js](./soroban-payment.js) - Direct Soroban Payment
+
+Pay a stellar_card order directly via the Soroban smart contract using a raw Stellar keypair:
+- Create an order via the REST API
+- Submit payment through `payViaContract`
+- Wait for the virtual card with timeout handling
+- Structured error wrapping and recovery hints
+
+```bash
+CARDS402_API_KEY=... STELLAR_SECRET=S... node examples/soroban-payment.js
+```
+
 ### 5. [cli-commands.md](./cli-commands.md) - CLI Cheat Sheet
 
 Command-line reference for the `stellar_card` CLI tool.

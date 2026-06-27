@@ -1,0 +1,124 @@
+name: SDK Validate (PR)
+
+# Runs on every PR that touches SDK code to validate the package is
+# publishable before it lands on main — acts as a gate before the
+# publish.yml workflow fires on a tag push.
+#
+# Checks performed:
+#   1. Install & type-check
+#   2. Lint
+#   3. Full test suite
+#   4. Production build (CJS + ESM)
+#   5. Browser-entry safety check (no Node built-ins)
+#   6. Package contents verification
+#   7. npm pack dry-run — asserts the tarball can be created and lists
+#      every file that would be uploaded to the registry
+#
+# Issue: #155 — Setup automated CI/CD for NPM publishing (Part 1)
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'stellar_card-sdk/**'
+      - '.github/workflows/sdk-validate.yml'
+  # Allow maintainers to trigger manually on any branch
+  workflow_dispatch:
+
+concurrency:
+  group: sdk-validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate SDK (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['18.x', '20.x', '22.x']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: stellar_card-sdk/package-lock.json
+          # Point at the npm registry so pack/publish commands resolve correctly
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        working-directory: stellar_card-sdk
+        run: npm ci
+
+      - name: Type check
+        working-directory: stellar_card-sdk
+        run: npm run typecheck
+
+      - name: Lint
+        working-directory: stellar_card-sdk
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Run tests
+        working-directory: stellar_card-sdk
+        run: npm run test
+        env:
+          CARDS402_ALLOW_INSECURE_BASE_URL: '1'
+
+      - name: Build (CJS + ESM)
+        working-directory: stellar_card-sdk
+        run: npm run build
+
+      - name: Check browser entry has no Node built-ins
+        working-directory: stellar_card-sdk
+        run: npm run check:browser
+
+      - name: Verify publishable package contents
+        working-directory: stellar_card-sdk
+        run: npm run verify:package
+
+      # ── npm pack dry-run ──────────────────────────────────────────────────
+      # Creates the tarball exactly as `npm publish` would, prints the file
+      # list, and then removes the tarball so the workspace stays clean.
+      # This catches missing `files` entries, broken symlinks, or dist
+      # files that weren't generated before the pack step.
+      - name: npm pack dry-run
+        working-directory: stellar_card-sdk
+        run: |
+          echo "--- Files that would be published ---"
+          npm pack --dry-run 2>&1 | tee pack-output.txt
+          echo "--- Verifying dist/ is present in pack output ---"
+          grep -q "dist/" pack-output.txt || (echo "::error::dist/ not found in pack output — run 'npm run build' first" && exit 1)
+          echo "--- Pack dry-run passed ---"
+
+  # ── Changelog / version guard ─────────────────────────────────────────────
+  # Warn (not fail) when a PR modifies SDK source but doesn't bump the
+  # version in package.json — helps the team remember to cut a release.
+  version-check:
+    name: Version bump reminder
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if package.json version changed
+        run: |
+          BASE_VERSION=$(git show origin/${{ github.base_ref }}:stellar_card-sdk/package.json | python3 -c "import sys,json; print(json.load(sys.stdin)['version'])")
+          HEAD_VERSION=$(python3 -c "import json; print(json.load(open('stellar_card-sdk/package.json'))['version'])")
+          echo "Base version : $BASE_VERSION"
+          echo "Head version : $HEAD_VERSION"
+          if [ "$BASE_VERSION" = "$HEAD_VERSION" ]; then
+            echo "::warning file=stellar_card-sdk/package.json::SDK source changed but package.json version ($HEAD_VERSION) was not bumped. Remember to bump the version before merging if this PR should trigger a release."
+          else
+            echo "✓ Version bumped: $BASE_VERSION → $HEAD_VERSION"
+          fi
