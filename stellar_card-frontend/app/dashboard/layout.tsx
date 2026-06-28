@@ -11,6 +11,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { useState } from 'react';
 import { DashboardProvider, useDashboard } from './_lib/DashboardProvider';
 import { ToastProvider } from './_ui/Toast';
 import { Sidebar } from './_shell/Sidebar';
@@ -18,9 +19,12 @@ import { Header } from './_shell/Header';
 import { AuthGate } from './_shell/AuthGate';
 import { FeedbackLauncher } from './_shell/FeedbackLauncher';
 import { CommandPalette } from './_shell/CommandPalette';
+import { MobileDrawer } from '@/app/components/MobileDrawer';
+import { DynamicOnboardingModal } from '@/app/lib/dynamic-imports';
 
 function ShellInner({ children }: { children: ReactNode }) {
   const { loading, authError } = useDashboard();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   if (loading) {
     return (
@@ -55,18 +59,33 @@ function ShellInner({ children }: { children: ReactNode }) {
         color: 'var(--fg)',
       }}
     >
-      <Sidebar />
+      {/* Desktop sidebar — hidden on mobile via CSS */}
+      <div className="dashboard-sidebar-wrap">
+        <Sidebar />
+      </div>
+
+      {/* Mobile slide-over drawer */}
+      <MobileDrawer open={mobileNavOpen} onClose={() => setMobileNavOpen(false)}>
+        <Sidebar />
+      </MobileDrawer>
+
       <div
         className="dashboard-backdrop"
         style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}
       >
-        <Header />
+        <Header onMenuToggle={() => setMobileNavOpen((v) => !v)} />
         <main style={{ flex: 1, overflowY: 'auto', position: 'relative', zIndex: 1 }}>
           {children}
         </main>
       </div>
       <FeedbackLauncher />
       <CommandPalette />
+      <DynamicOnboardingModal />
+      <style>{`
+        @media (max-width: 768px) {
+          .dashboard-sidebar-wrap { display: none; }
+        }
+      `}</style>
     </div>
   );
 }
