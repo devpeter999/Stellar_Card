@@ -9,9 +9,17 @@ interface Props extends Omit<InputHTMLAttributes<HTMLInputElement>, 'prefix'> {
   prefix?: ReactNode;
   suffix?: ReactNode;
   wrapperStyle?: CSSProperties;
+  'aria-label'?: string;
+  'aria-describedby'?: string;
+  'aria-invalid'?: boolean;
+  'aria-required'?: boolean;
 }
 
 export function Input({ prefix, suffix, wrapperStyle, style, ...rest }: Props) {
+  const ariaLabel = rest['aria-label'];
+  const ariaInvalid = rest['aria-invalid'];
+  const ariaRequired = rest['aria-required'];
+  
   return (
     <div
       style={{
@@ -19,7 +27,7 @@ export function Input({ prefix, suffix, wrapperStyle, style, ...rest }: Props) {
         alignItems: 'center',
         gap: '0.5rem',
         background: 'var(--surface-2)',
-        border: '1px solid var(--border)',
+        border: `1px solid ${ariaInvalid ? 'var(--red)' : 'var(--border)'}`,
         borderRadius: 6,
         padding: '0.45rem 0.7rem',
         fontFamily: 'var(--font-mono)',
@@ -28,9 +36,12 @@ export function Input({ prefix, suffix, wrapperStyle, style, ...rest }: Props) {
         ...wrapperStyle,
       }}
     >
-      {prefix && <span style={{ color: 'var(--fg-dim)' }}>{prefix}</span>}
+      {prefix && <span aria-hidden="true" style={{ color: 'var(--fg-dim)' }}>{prefix}</span>}
       <input
         {...rest}
+        aria-label={ariaLabel}
+        aria-invalid={ariaInvalid}
+        aria-required={ariaRequired}
         style={{
           flex: 1,
           minWidth: 0,
@@ -42,7 +53,7 @@ export function Input({ prefix, suffix, wrapperStyle, style, ...rest }: Props) {
           ...style,
         }}
       />
-      {suffix && <span style={{ color: 'var(--fg-dim)' }}>{suffix}</span>}
+      {suffix && <span aria-hidden="true" style={{ color: 'var(--fg-dim)' }}>{suffix}</span>}
     </div>
   );
 }
