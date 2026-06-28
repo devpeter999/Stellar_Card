@@ -1,4 +1,5 @@
 import type { Preview } from '@storybook/react';
+import '../app/globals.css';
 
 const preview: Preview = {
   parameters: {
@@ -16,7 +17,25 @@ const preview: Preview = {
       },
     },
     a11y: {
-      test: 'todo',
+      config: {
+        rules: [
+          {
+            id: 'color-contrast',
+            enabled: true,
+          },
+          {
+            id: 'label-has-associated-control',
+            enabled: true,
+          },
+          {
+            id: 'button-name',
+            enabled: true,
+          },
+        ],
+      },
+    },
+    docs: {
+      toc: true,
     },
   },
   decorators: [
@@ -24,10 +43,10 @@ const preview: Preview = {
       <div
         style={{
           padding: '2rem',
-          background: '#050505',
-          color: '#f4f4f4',
+          background: 'var(--bg)',
+          color: 'var(--fg)',
           minHeight: '100vh',
-          fontFamily: "'IBM Plex Sans', sans-serif",
+          fontFamily: 'var(--font-body)',
         }}
       >
         <Story />

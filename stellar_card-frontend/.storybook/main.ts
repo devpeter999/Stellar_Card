@@ -1,17 +1,26 @@
 import type { StorybookConfig } from '@storybook/react-vite';
+import { resolve } from 'path';
 
 const config: StorybookConfig = {
   stories: ['../app/**/*.stories.@(ts|tsx)'],
-  addons: ['@storybook/addon-essentials', '@storybook/addon-links'],
+  addons: [
+    '@storybook/addon-essentials',
+    '@storybook/addon-links',
+    '@storybook/addon-a11y',
+    '@storybook/addon-docs',
+  ],
   framework: {
-    name: '@storybook/react-vite',
+    name: '@storybook/nextjs-vite',
     options: {},
+  },
+  docs: {
+    autodocs: 'tag',
   },
   viteFinal: async (config) => {
     config.resolve = config.resolve || {};
     config.resolve.alias = {
       ...config.resolve.alias,
-      '@': '/Users/marvellous/Desktop/Stellar_Card/stellar_card-frontend',
+      '@': resolve(__dirname, '../'),
     };
     return config;
   },

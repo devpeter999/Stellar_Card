@@ -27,6 +27,8 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
   size?: Size;
   icon?: ReactNode;
   children?: ReactNode;
+  'aria-label'?: string;
+  'aria-describedby'?: string;
 }
 
 export function Button({
@@ -79,6 +81,8 @@ export function Button({
       border: '1px solid var(--red-border)',
     },
   };
+  const ariaLabel = rest['aria-label'] || (typeof children === 'string' ? children : undefined);
+  
   return (
     <button
       {...rest}
@@ -91,6 +95,12 @@ export function Button({
       style={{ ...base, ...variants[variant], ...style }}
     >
       {icon ? <span aria-hidden="true" style={{ display: 'inline-flex', alignItems: 'center' }}>{icon}</span> : null}
+    <button 
+      {...rest} 
+      aria-label={ariaLabel}
+      style={{ ...base, ...variants[variant], ...style }}
+    >
+      {icon && <span aria-hidden="true" style={{ display: 'inline-flex', alignItems: 'center' }}>{icon}</span>}
       {children}
     </button>
   );
