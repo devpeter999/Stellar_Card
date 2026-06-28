@@ -6,8 +6,8 @@ const preview: Preview = {
     backgrounds: {
       default: 'dark',
       values: [
-        { name: 'dark', value: '#0f1117' },
-        { name: 'light', value: '#ffffff' },
+        { name: 'dark', value: '#050505' },
+        { name: 'light', value: '#fafaf7' },
       ],
     },
     controls: {
@@ -17,16 +17,37 @@ const preview: Preview = {
       },
     },
     a11y: {
-      // Run axe-core on every story by default
-      element: '#storybook-root',
+      config: {
+        rules: [
+          {
+            id: 'color-contrast',
+            enabled: true,
+          },
+          {
+            id: 'label-has-associated-control',
+            enabled: true,
+          },
+          {
+            id: 'button-name',
+            enabled: true,
+          },
+        ],
+      },
+    },
+    docs: {
+      toc: true,
     },
   },
   decorators: [
     (Story) => (
-      // Apply the same CSS variable baseline the dashboard uses
       <div
-        data-theme="dark"
-        style={{ padding: '2rem', background: 'var(--bg)', minHeight: '100vh' }}
+        style={{
+          padding: '2rem',
+          background: 'var(--bg)',
+          color: 'var(--fg)',
+          minHeight: '100vh',
+          fontFamily: 'var(--font-body)',
+        }}
       >
         <Story />
       </div>

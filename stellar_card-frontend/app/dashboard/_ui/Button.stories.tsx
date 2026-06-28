@@ -1,8 +1,8 @@
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Button } from './Button';
 
 const meta: Meta<typeof Button> = {
-  title: 'Dashboard/UI/Button',
+  title: 'Dashboard/Button',
   component: Button,
   tags: ['autodocs'],
   argTypes: {
@@ -11,10 +11,9 @@ const meta: Meta<typeof Button> = {
       options: ['primary', 'secondary', 'ghost', 'danger'],
     },
     size: {
-      control: 'radio',
+      control: 'select',
       options: ['sm', 'md'],
     },
-    disabled: { control: 'boolean' },
   },
 };
 
@@ -22,25 +21,37 @@ export default meta;
 type Story = StoryObj<typeof Button>;
 
 export const Primary: Story = {
-  args: { variant: 'primary', children: 'Create agent' },
+  args: {
+    variant: 'primary',
+    children: 'Create Agent',
+  },
 };
 
 export const Secondary: Story = {
-  args: { variant: 'secondary', children: 'View details' },
+  args: {
+    variant: 'secondary',
+    children: 'Cancel',
+  },
 };
 
 export const Ghost: Story = {
-  args: { variant: 'ghost', children: 'Cancel' },
+  args: {
+    variant: 'ghost',
+    children: 'Skip',
+  },
 };
 
 export const Danger: Story = {
-  args: { variant: 'danger', children: 'Delete agent' },
+  args: {
+    variant: 'danger',
+    children: 'Delete',
+  },
 };
 
 export const Small: Story = {
-  args: { variant: 'secondary', size: 'sm', children: 'Copy key' },
-};
-
-export const Disabled: Story = {
-  args: { variant: 'primary', children: 'Send code', disabled: true },
+  args: {
+    variant: 'primary',
+    size: 'sm',
+    children: 'Small button',
+  },
 };

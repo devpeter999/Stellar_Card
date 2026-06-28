@@ -10,9 +10,11 @@ interface Props {
   label: ReactNode;
   description?: ReactNode;
   children?: ReactNode; // inline value, e.g. an Input
+  'aria-label'?: string;
+  'aria-describedby'?: string;
 }
 
-export function Toggle({ checked, onChange, label, description, children }: Props) {
+export function Toggle({ checked, onChange, label, description, children, ...rest }: Props) {
   return (
     <div
       style={{
@@ -25,6 +27,11 @@ export function Toggle({ checked, onChange, label, description, children }: Prop
     >
       <button
         onClick={() => onChange(!checked)}
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={rest['aria-label'] || (typeof label === 'string' ? label : 'Toggle switch')}
+        aria-describedby={rest['aria-describedby']}
         style={{
           marginTop: 2,
           width: 30,
@@ -37,8 +44,6 @@ export function Toggle({ checked, onChange, label, description, children }: Prop
           flexShrink: 0,
           transition: 'background 120ms, border-color 120ms',
         }}
-        aria-pressed={checked}
-        aria-label={typeof label === 'string' ? label : undefined}
       >
         <span
           style={{
