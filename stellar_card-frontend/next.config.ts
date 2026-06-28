@@ -39,6 +39,11 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(__dirname, '..'),
   },
+  // Bundle optimization: split vendor code into separate chunks so the
+  // browser can cache framework code across deploys while app code changes.
+  experimental: {
+    optimizePackageImports: ['geist'],
+  },
   async headers() {
     return [
       {
