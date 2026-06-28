@@ -1,5 +1,6 @@
 import type { NextConfig } from 'next';
 import path from 'path';
+import withBundleAnalyzer from '@next/bundle-analyzer';
 
 // Security headers. We set these via next.config rather than a proxy/
 // edge function so they're present on static assets, ISR responses,
@@ -59,4 +60,8 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// Bundle analyzer: enabled when ANALYZE=true (run: npm run build:analyze).
+// Opens a browser report showing which modules make up each chunk so we
+// can spot large dependencies and validate that dynamic imports are working.
+const analyze = withBundleAnalyzer({ enabled: process.env.ANALYZE === 'true' });
+export default analyze(nextConfig);
