@@ -44,6 +44,23 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ['geist'],
   },
+  // Image optimization hints (#133).
+  // remote patterns allow the dashboard to render user avatars / agent
+  // icons hosted on Cloudflare R2 without disabling the built-in
+  // image optimizer. Quality 85 is a good trade-off for dashboard UIs —
+  // crisp enough for data-dense tables, meaningfully smaller than 100.
+  images: {
+    formats: ['image/avif', 'image/webp'],
+    minimumCacheTTL: 3600,
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920],
+    imageSizes: [16, 32, 48, 64, 96, 128, 256],
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**.r2.cloudflarestorage.com',
+      },
+    ],
+  },
   async headers() {
     return [
       {

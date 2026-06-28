@@ -1,6 +1,12 @@
 // Labeled toggle switch with optional description and inline input.
 // Matches the Ampersand "setting row" pattern where a toggle, label,
 // description and value field sit on one horizontal rhythm.
+//
+// A11y (#136):
+//   - role="switch" + aria-checked expose the toggle state to AT.
+//   - aria-label falls back to the string label if provided.
+//   - type="button" prevents accidental form submission.
+//   - Keyboard: Space/Enter are natively handled by <button>.
 
 import type { ReactNode } from 'react';
 
@@ -10,9 +16,11 @@ interface Props {
   label: ReactNode;
   description?: ReactNode;
   children?: ReactNode; // inline value, e.g. an Input
+  id?: string;
 }
 
-export function Toggle({ checked, onChange, label, description, children }: Props) {
+export function Toggle({ checked, onChange, label, description, children, id }: Props) {
+  const labelId = id ? `${id}-label` : undefined;
   return (
     <div
       style={{
@@ -24,6 +32,12 @@ export function Toggle({ checked, onChange, label, description, children }: Prop
       }}
     >
       <button
+        id={id}
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-labelledby={labelId}
+        aria-label={typeof label === 'string' ? label : undefined}
         onClick={() => onChange(!checked)}
         style={{
           marginTop: 2,
@@ -37,10 +51,9 @@ export function Toggle({ checked, onChange, label, description, children }: Prop
           flexShrink: 0,
           transition: 'background 120ms, border-color 120ms',
         }}
-        aria-pressed={checked}
-        aria-label={typeof label === 'string' ? label : undefined}
       >
         <span
+          aria-hidden="true"
           style={{
             position: 'absolute',
             top: 1,
@@ -55,6 +68,7 @@ export function Toggle({ checked, onChange, label, description, children }: Prop
       </button>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
+          id={labelId}
           style={{
             fontSize: '0.78rem',
             fontWeight: 500,

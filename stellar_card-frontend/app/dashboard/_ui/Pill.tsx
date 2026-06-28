@@ -3,6 +3,7 @@
 // themes look right.
 
 import type { ReactNode } from 'react';
+import { toneTokens } from './tokens';
 
 export type PillTone = 'green' | 'red' | 'yellow' | 'blue' | 'purple' | 'neutral';
 
@@ -13,20 +14,17 @@ interface Props {
   title?: string;
 }
 
-const TONE_VARS: Record<PillTone, { fg: string; bg: string; border: string }> = {
-  green: { fg: 'var(--green)', bg: 'var(--green-muted)', border: 'var(--green-border)' },
-  red: { fg: 'var(--red)', bg: 'var(--red-muted)', border: 'var(--red-border)' },
-  yellow: { fg: 'var(--yellow)', bg: 'var(--yellow-muted)', border: 'var(--yellow-border)' },
-  blue: { fg: 'var(--blue)', bg: 'var(--blue-muted)', border: 'var(--blue-border)' },
-  purple: { fg: 'var(--purple)', bg: 'var(--purple-muted)', border: 'var(--purple-border)' },
-  neutral: { fg: 'var(--fg-muted)', bg: 'var(--surface-2)', border: 'var(--border)' },
-};
+const TONE_VARS = toneTokens;
 
 export function Pill({ tone = 'neutral', pulse, children, title }: Props) {
   const c = TONE_VARS[tone];
   return (
     <span
+      // role="status" lets screen readers announce dynamic state changes
+      // (e.g. agent going live → dead) without an explicit live region.
+      role="status"
       title={title}
+      aria-label={typeof children === 'string' ? children : title}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -42,6 +40,7 @@ export function Pill({ tone = 'neutral', pulse, children, title }: Props) {
       }}
     >
       <span
+        aria-hidden="true"
         style={{
           width: 6,
           height: 6,

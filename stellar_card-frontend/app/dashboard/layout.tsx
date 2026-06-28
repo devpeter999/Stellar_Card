@@ -17,7 +17,8 @@ import { Sidebar } from './_shell/Sidebar';
 import { Header } from './_shell/Header';
 import { AuthGate } from './_shell/AuthGate';
 import { FeedbackLauncher } from './_shell/FeedbackLauncher';
-import { CommandPalette } from './_shell/CommandPalette';
+// Dynamic import keeps CommandPalette JS out of the initial bundle (#133).
+import { DynamicCommandPalette as CommandPalette } from './_lib/dynamic';
 
 function ShellInner({ children }: { children: ReactNode }) {
   const { loading, authError } = useDashboard();
