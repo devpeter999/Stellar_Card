@@ -26,7 +26,9 @@ export function Pill({ tone = 'neutral', pulse, children, title }: Props) {
   const c = TONE_VARS[tone];
   return (
     <span
+      role="status"
       title={title}
+      aria-label={title ?? (typeof children === 'string' ? children : undefined)}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
