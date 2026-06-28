@@ -6,7 +6,10 @@
 // maximum — restraint, not density.
 
 import Link from 'next/link';
-import { HeroScene, HeroCard } from '@/app/components/HeroCard';
+import {
+  DynamicHeroCard as HeroCard,
+  DynamicHeroScene as HeroScene,
+} from '@/app/lib/dynamic-imports';
 
 const agentOneLiner = `Read https://stellar_card.com/skill.md and set up
 this agent by running:
