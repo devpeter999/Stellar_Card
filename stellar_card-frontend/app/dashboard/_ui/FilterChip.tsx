@@ -4,6 +4,7 @@
 
 import type { ReactNode } from 'react';
 import type { PillTone } from './Pill';
+import { typography } from './tokens';
 
 interface Props {
   active: boolean;
@@ -61,8 +62,8 @@ export function FilterChip({ active, onClick, count, tone, children }: Props) {
         <span
           style={{
             color: 'var(--fg-dim)',
-            fontFamily: 'var(--font-mono)',
-            fontSize: '0.66rem',
+            fontFamily: typography.fontMono,
+            fontSize: typography.size.xs,
             lineHeight: 1,
             display: 'inline-flex',
             alignItems: 'center',

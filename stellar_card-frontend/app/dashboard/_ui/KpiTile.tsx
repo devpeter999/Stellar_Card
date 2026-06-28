@@ -2,6 +2,7 @@
 // Used in row-of-four patterns on the overview and agent detail pages.
 
 import type { ReactNode } from 'react';
+import { typography } from './tokens';
 
 interface Props {
   label: string;
@@ -32,12 +33,12 @@ export function KpiTile({ label, value, delta, hint }: Props) {
     >
       <div
         style={{
-          fontSize: '0.66rem',
+          fontSize: typography.size.xs,
           color: 'var(--fg-dim)',
           textTransform: 'uppercase',
           letterSpacing: '0.08em',
           fontWeight: 500,
-          fontFamily: 'var(--font-mono)',
+          fontFamily: typography.fontMono,
           // Ensure the label can wrap on very narrow tiles instead of
           // forcing horizontal overflow.
           wordBreak: 'break-word',
@@ -50,7 +51,7 @@ export function KpiTile({ label, value, delta, hint }: Props) {
           fontSize: 'clamp(1.25rem, 2.6vw + 0.5rem, 1.65rem)',
           fontWeight: 500,
           color: 'var(--fg)',
-          fontFamily: 'var(--font-mono)',
+          fontFamily: typography.fontMono,
           fontVariantNumeric: 'tabular-nums',
           lineHeight: 1.1,
           letterSpacing: '-0.015em',
@@ -69,8 +70,8 @@ export function KpiTile({ label, value, delta, hint }: Props) {
           {delta && (
             <span
               style={{
-                fontSize: '0.68rem',
-                fontFamily: 'var(--font-mono)',
+                fontSize: typography.size.sm,
+                fontFamily: typography.fontMono,
                 color: delta.positive ? 'var(--green)' : 'var(--red)',
               }}
             >
@@ -80,9 +81,9 @@ export function KpiTile({ label, value, delta, hint }: Props) {
           {hint && (
             <span
               style={{
-                fontSize: '0.68rem',
+                fontSize: typography.size.sm,
                 color: 'var(--fg-dim)',
-                fontFamily: 'var(--font-mono)',
+                fontFamily: typography.fontMono,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
