@@ -30,7 +30,7 @@ function SvgIcon({ d, size = 16 }: { d: string; size?: number }) {
   );
 }
 
-export function Header() {
+export function Header({ onMenuToggle }: { onMenuToggle?: () => void }) {
   const { user, info, approvals } = useDashboard();
   const router = useRouter();
   const [theme, setTheme] = useState<Theme>('dark');
@@ -85,6 +85,32 @@ export function Header() {
         zIndex: 20,
       }}
     >
+      {/* Mobile nav toggle — hidden on desktop, visible on small screens */}
+      {onMenuToggle && (
+        <button
+          onClick={onMenuToggle}
+          aria-label="Toggle navigation"
+          className="dashboard-header-menu-btn"
+          style={{
+            width: 32,
+            height: 32,
+            display: 'none',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'transparent',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+            color: 'var(--fg-muted)',
+            cursor: 'pointer',
+            flexShrink: 0,
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+            <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
+
       <div style={{ flex: 1, minWidth: 0, maxWidth: 320 }}>
         <GlobalSearch />
       </div>
@@ -477,6 +503,13 @@ export function Header() {
           </div>
         )}
       </div>
+      <style>{`
+        @media (max-width: 768px) {
+          .dashboard-header-menu-btn { display: inline-flex !important; }
+          .dashboard-header-live { display: none; }
+          .dashboard-header-theme { display: none; }
+        }
+      `}</style>
     </header>
   );
 }

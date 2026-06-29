@@ -1,5 +1,8 @@
-import type { StorybookConfig } from '@storybook/react-vite';
-import { resolve } from 'path';
+import type { StorybookConfig } from '@storybook/nextjs-vite';
+import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const config: StorybookConfig = {
   stories: ['../app/**/*.stories.@(ts|tsx)'],

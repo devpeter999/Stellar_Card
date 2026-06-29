@@ -3,34 +3,31 @@
 // themes look right.
 
 import type { ReactNode } from 'react';
-import { toneTokens } from './tokens';
+import { type Tone, TONE_VARS, typography } from './tokens';
 
-export type PillTone = 'green' | 'red' | 'yellow' | 'blue' | 'purple' | 'neutral';
+/** @deprecated Import `Tone` from `./tokens` instead. */
+export type PillTone = Tone;
 
 interface Props {
-  tone?: PillTone;
+  tone?: Tone;
   pulse?: boolean;
   children: ReactNode;
   title?: string;
 }
 
-const TONE_VARS = toneTokens;
-
 export function Pill({ tone = 'neutral', pulse, children, title }: Props) {
   const c = TONE_VARS[tone];
   return (
     <span
-      // role="status" lets screen readers announce dynamic state changes
-      // (e.g. agent going live → dead) without an explicit live region.
       role="status"
       title={title}
-      aria-label={typeof children === 'string' ? children : title}
+      aria-label={title ?? (typeof children === 'string' ? children : undefined)}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
         gap: '0.4rem',
-        fontSize: '0.7rem',
-        fontFamily: 'var(--font-mono)',
+        fontSize: typography.size.base,
+        fontFamily: typography.fontMono,
         color: c.fg,
         padding: '0.2rem 0.55rem',
         borderRadius: 4,

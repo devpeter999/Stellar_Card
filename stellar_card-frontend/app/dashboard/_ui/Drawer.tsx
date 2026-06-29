@@ -4,7 +4,7 @@
 
 'use client';
 
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 
 interface Props {
   open: boolean;
@@ -15,8 +15,13 @@ interface Props {
 }
 
 export function Drawer({ open, onClose, title, width = 420, children }: Props) {
+  const titleId = useId();
+  const closeRef = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
     if (!open) return;
+    // Move focus to the close button so keyboard users land inside the drawer
+    closeRef.current?.focus();
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose();
     }
@@ -36,7 +41,9 @@ export function Drawer({ open, onClose, title, width = 420, children }: Props) {
         justifyContent: 'flex-end',
       }}
     >
+      {/* Backdrop — clicking it closes the drawer */}
       <div
+        role="presentation"
         onClick={onClose}
         style={{
           position: 'absolute',
@@ -45,6 +52,9 @@ export function Drawer({ open, onClose, title, width = 420, children }: Props) {
         }}
       />
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
         style={{
           position: 'relative',
           width,
@@ -66,8 +76,14 @@ export function Drawer({ open, onClose, title, width = 420, children }: Props) {
             justifyContent: 'space-between',
           }}
         >
-          <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--fg)' }}>{title}</div>
+          <div
+            id={titleId}
+            style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--fg)' }}
+          >
+            {title}
+          </div>
           <button
+            ref={closeRef}
             onClick={onClose}
             style={{
               background: 'transparent',
@@ -79,7 +95,7 @@ export function Drawer({ open, onClose, title, width = 420, children }: Props) {
               cursor: 'pointer',
               fontSize: '0.85rem',
             }}
-            aria-label="Close"
+            aria-label="Close drawer"
           >
             ×
           </button>
