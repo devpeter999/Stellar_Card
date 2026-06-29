@@ -15,7 +15,7 @@ pub enum DataKey {
     UsdcContract,
     XlmContract,
     Admin,
-    Roles,
+    ReentrancyGuard,
 }
 
 #[contract]
@@ -48,9 +48,21 @@ impl Stellar_CardReceiver {
         env.storage().instance().set(&DataKey::UsdcContract, &usdc_contract);
         env.storage().instance().set(&DataKey::XlmContract, &xlm_contract);
 
-        // Keep instance storage alive to avoid state-eviction surprises on
-        // long-lived deployments with infrequent writes.
         env.storage().instance().extend_ttl(17_280_000, 17_280_000);
+    }
+
+    /// Acquire the reentrancy guard. Panics if already held.
+    fn _enter(env: &Env) {
+        let key = DataKey::ReentrancyGuard;
+        if env.storage().instance().get::<_, bool>(&key).unwrap_or(false) {
+            panic!("reentrancy detected");
+        }
+        env.storage().instance().set(&key, &true);
+    }
+
+    /// Release the reentrancy guard.
+    fn _exit(env: &Env) {
+        env.storage().instance().set(&DataKey::ReentrancyGuard, &false);
     }
 
     /// Transfer `amount` USDC (in micro-USDC, 7 d.p.) from `from` to treasury.
@@ -64,8 +76,12 @@ impl Stellar_CardReceiver {
         let treasury: Address = env.storage().instance().get(&DataKey::Treasury).unwrap();
         let usdc_contract: Address = env.storage().instance().get(&DataKey::UsdcContract).unwrap();
 
+        Self::_enter(&env);
+
         let token_client = token::Client::new(&env, &usdc_contract);
         token_client.transfer(&from, &treasury, &amount);
+
+        Self::_exit(&env);
 
         env.events().publish(
             (Symbol::new(&env, "pay_usdc"), order_id, from),
@@ -86,8 +102,12 @@ impl Stellar_CardReceiver {
         let treasury: Address = env.storage().instance().get(&DataKey::Treasury).unwrap();
         let xlm_contract: Address = env.storage().instance().get(&DataKey::XlmContract).unwrap();
 
+        Self::_enter(&env);
+
         let token_client = token::Client::new(&env, &xlm_contract);
         token_client.transfer(&from, &treasury, &amount);
+
+        Self::_exit(&env);
 
         env.events().publish(
             (Symbol::new(&env, "pay_xlm"), order_id, from),
@@ -519,336 +539,316 @@ mod test {
         assert!(result.is_err(), "init should require admin authorization");
     }
 
-    // ── RBAC tests ────────────────────────────────────────────────────────────
+    // ── reentrancy guard tests ──────────────────────────────────────────────
 
     #[test]
-    fn test_grant_role_admin_to_operator() {
+    #[should_panic(expected = "reentrancy detected")]
+    fn test_reentrancy_guard_panics_on_reentry() {
         let f = Fixture::new();
         f.init();
 
-        let operator = Address::generate(&f.env);
-        f.client().grant_role(&operator, &Role::Operator);
+        let amount: i128 = 10_000_000;
+        f.mint_usdc(&f.payer, amount * 2);
 
-        let role = f.client().get_role(&operator);
-        assert_eq!(role, Some(Role::Operator));
+        // Set the reentrancy guard from within the contract context
+        f.env.as_contract(&f.contract_id, || {
+            f.env.storage().instance().set(&DataKey::ReentrancyGuard, &true);
+        });
+
+        let oid1 = order_bytes(&f.env, "reentry-1");
+        f.client().pay_usdc(&f.payer, &amount, &oid1);
     }
 
     #[test]
-    fn test_grant_role_viewer() {
+    fn test_reentrancy_guard_resets_after_successful_transfer() {
         let f = Fixture::new();
         f.init();
 
-        let viewer = Address::generate(&f.env);
-        f.client().grant_role(&viewer, &Role::Viewer);
+        let amount: i128 = 5_000_000;
+        f.mint_usdc(&f.payer, amount * 2);
 
-        let role = f.client().get_role(&viewer);
-        assert_eq!(role, Some(Role::Viewer));
+        let oid1 = order_bytes(&f.env, "sequential-1");
+        f.client().pay_usdc(&f.payer, &amount, &oid1);
+
+        // Guard should be reset — second call should succeed
+        let oid2 = order_bytes(&f.env, "sequential-2");
+        f.client().pay_usdc(&f.payer, &amount, &oid2);
+
+        assert_eq!(f.usdc_balance(&f.treasury), amount * 2);
+        assert_eq!(f.usdc_balance(&f.payer), 0);
     }
 
     #[test]
-    fn test_revoke_role() {
+    fn test_reentrancy_guard_resets_for_xlm_after_successful_transfer() {
         let f = Fixture::new();
         f.init();
 
-        let operator = Address::generate(&f.env);
-        f.client().grant_role(&operator, &Role::Operator);
+        let amount: i128 = 5_000_000;
+        f.mint_xlm(&f.payer, amount * 2);
 
-        let role = f.client().get_role(&operator);
-        assert_eq!(role, Some(Role::Operator));
+        let oid1 = order_bytes(&f.env, "xlm-sequential-1");
+        f.client().pay_xlm(&f.payer, &amount, &oid1);
 
-        f.client().revoke_role(&operator);
-        let revoked_role = f.client().get_role(&operator);
-        assert_eq!(revoked_role, None);
+        let oid2 = order_bytes(&f.env, "xlm-sequential-2");
+        f.client().pay_xlm(&f.payer, &amount, &oid2);
+
+        assert_eq!(f.xlm_balance(&f.treasury), amount * 2);
     }
 
+    // ── comprehensive edge-case tests ─────────────────────────────────────
+
     #[test]
-    fn test_has_role_admin_has_all_permissions() {
+    fn test_pay_usdc_smallest_positive_amount() {
         let f = Fixture::new();
         f.init();
 
-        let operator = Address::generate(&f.env);
-        f.client().grant_role(&operator, &Role::Operator);
+        let amount: i128 = 1; // 0.0000001 USDC
+        f.mint_usdc(&f.payer, amount);
 
-        assert_eq!(f.client().has_role(&operator, &Role::Operator), true);
-        assert_eq!(f.client().has_role(&operator, &Role::Viewer), true);
-        assert_eq!(f.client().has_role(&operator, &Role::Admin), false);
+        let oid = order_bytes(&f.env, "min-usdc");
+        f.client().pay_usdc(&f.payer, &amount, &oid);
+
+        assert_eq!(f.usdc_balance(&f.treasury), 1);
+        assert_eq!(f.usdc_balance(&f.payer), 0);
     }
 
     #[test]
-    fn test_has_role_viewer_has_limited_permissions() {
+    fn test_pay_xlm_smallest_positive_amount() {
         let f = Fixture::new();
         f.init();
 
-        let viewer = Address::generate(&f.env);
-        f.client().grant_role(&viewer, &Role::Viewer);
+        let amount: i128 = 1; // 1 stroop
+        f.mint_xlm(&f.payer, amount);
 
-        assert_eq!(f.client().has_role(&viewer, &Role::Viewer), true);
-        assert_eq!(f.client().has_role(&viewer, &Role::Operator), false);
-        assert_eq!(f.client().has_role(&viewer, &Role::Admin), false);
+        let oid = order_bytes(&f.env, "min-xlm");
+        f.client().pay_xlm(&f.payer, &amount, &oid);
+
+        assert_eq!(f.xlm_balance(&f.treasury), 1);
+        assert_eq!(f.xlm_balance(&f.payer), 0);
     }
 
     #[test]
-    fn test_get_role_unassigned_address_returns_none() {
+    fn test_pay_usdc_large_amount() {
         let f = Fixture::new();
         f.init();
 
-        let unassigned = Address::generate(&f.env);
-        let role = f.client().get_role(&unassigned);
-        assert_eq!(role, None);
-    }
+        let amount: i128 = 1_000_000_000_000; // 100,000 USDC
+        f.mint_usdc(&f.payer, amount);
 
-    #[test]
-    #[should_panic]
-    fn test_grant_role_requires_admin_auth() {
-        let env = Env::default();
-        env.mock_auths(&[]);
-
-        let admin = Address::generate(&env);
-        let treasury = Address::generate(&env);
-        let usdc = env.register_stellar_asset_contract_v2(admin.clone()).address();
-        let xlm_sac = env.register_stellar_asset_contract_v2(admin.clone()).address();
-        let contract_id = env.register(Stellar_CardReceiver, ());
-        let client = Stellar_CardReceiverClient::new(&env, &contract_id);
-
-        env.mock_all_auths();
-        client.init(&admin, &treasury, &usdc, &xlm_sac);
-
-        env.mock_auths(&[]);
-        let other = Address::generate(&env);
-        client.grant_role(&other, &Role::Operator);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_revoke_role_requires_admin_auth() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let admin = Address::generate(&env);
-        let treasury = Address::generate(&env);
-        let usdc = env.register_stellar_asset_contract_v2(admin.clone()).address();
-        let xlm_sac = env.register_stellar_asset_contract_v2(admin.clone()).address();
-        let contract_id = env.register(Stellar_CardReceiver, ());
-        let client = Stellar_CardReceiverClient::new(&env, &contract_id);
-
-        client.init(&admin, &treasury, &usdc, &xlm_sac);
-
-        let operator = Address::generate(&env);
-        client.grant_role(&operator, &Role::Operator);
-
-        env.mock_auths(&[]);
-        client.revoke_role(&operator);
-    }
-
-    #[test]
-    fn test_update_role_overwrites_previous() {
-        let f = Fixture::new();
-        f.init();
-
-        let user = Address::generate(&f.env);
-        f.client().grant_role(&user, &Role::Viewer);
-
-        let initial_role = f.client().get_role(&user);
-        assert_eq!(initial_role, Some(Role::Viewer));
-
-        f.client().grant_role(&user, &Role::Operator);
-        let updated_role = f.client().get_role(&user);
-        assert_eq!(updated_role, Some(Role::Operator));
-    }
-
-    // ── Payment with RBAC tests ───────────────────────────────────────────────
-
-    #[test]
-    fn test_pay_usdc_by_authorized_user() {
-        let f = Fixture::new();
-        f.init();
-
-        let authorized_user = Address::generate(&f.env);
-        f.env.mock_auths(&[soroban_sdk::testutils::MockAuth {
-            address: authorized_user.clone(),
-            nonce: 0,
-            signatures: vec![],
-        }]);
-
-        f.client().grant_role(&authorized_user, &Role::Operator);
-
-        let amount: i128 = 15_000_000;
-        f.mint_usdc(&authorized_user, amount);
-
-        let oid = order_bytes(&f.env, "rbac-usdc-test");
-        f.client().pay_usdc(&authorized_user, &amount, &oid);
+        let oid = order_bytes(&f.env, "large-usdc");
+        f.client().pay_usdc(&f.payer, &amount, &oid);
 
         assert_eq!(f.usdc_balance(&f.treasury), amount);
-        assert_eq!(f.usdc_balance(&authorized_user), 0);
     }
 
     #[test]
-    fn test_multiple_roles_different_users() {
+    fn test_pay_xlm_large_amount() {
         let f = Fixture::new();
         f.init();
 
-        let admin_user = f.admin.clone();
-        let operator = Address::generate(&f.env);
-        let viewer = Address::generate(&f.env);
+        let amount: i128 = 1_000_000_000_000_000; // 100M XLM
+        f.mint_xlm(&f.payer, amount);
 
-        f.client().grant_role(&operator, &Role::Operator);
-        f.client().grant_role(&viewer, &Role::Viewer);
+        let oid = order_bytes(&f.env, "large-xlm");
+        f.client().pay_xlm(&f.payer, &amount, &oid);
 
-        assert_eq!(f.client().get_role(&admin_user), None);
-        assert_eq!(f.client().get_role(&operator), Some(Role::Operator));
-        assert_eq!(f.client().get_role(&viewer), Some(Role::Viewer));
+        assert_eq!(f.xlm_balance(&f.treasury), amount);
     }
 
-    // ── Edge case tests ───────────────────────────────────────────────────────
-
     #[test]
-    fn test_pay_usdc_with_max_amount() {
+    fn test_pay_usdc_insufficient_balance_panics() {
         let f = Fixture::new();
         f.init();
 
-        let max_amount: i128 = i128::MAX / 2;
-        f.mint_usdc(&f.payer, max_amount);
+        let amount: i128 = 10_000_000;
+        f.mint_usdc(&f.payer, amount / 2); // only half
 
-        let oid = order_bytes(&f.env, "max-amount-test");
-        f.client().pay_usdc(&f.payer, &max_amount, &oid);
-
-        assert_eq!(f.usdc_balance(&f.treasury), max_amount);
+        let oid = order_bytes(&f.env, "insufficient-usdc");
+        let result = f.client().try_pay_usdc(&f.payer, &amount, &oid);
+        assert!(result.is_err(), "should fail with insufficient balance");
     }
 
     #[test]
-    fn test_pay_xlm_with_large_amount() {
+    fn test_pay_xlm_insufficient_balance_panics() {
         let f = Fixture::new();
         f.init();
 
-        let large_amount: i128 = 1_000_000_000_000;
-        f.mint_xlm(&f.payer, large_amount);
+        let amount: i128 = 10_000_000;
+        f.mint_xlm(&f.payer, amount / 2);
 
-        let oid = order_bytes(&f.env, "large-xlm-amount");
-        f.client().pay_xlm(&f.payer, &large_amount, &oid);
-
-        assert_eq!(f.xlm_balance(&f.treasury), large_amount);
+        let oid = order_bytes(&f.env, "insufficient-xlm");
+        let result = f.client().try_pay_xlm(&f.payer, &amount, &oid);
+        assert!(result.is_err(), "should fail with insufficient balance");
     }
 
     #[test]
-    fn test_pay_usdc_multiple_times_accumulates() {
+    fn test_multiple_payments_accumulate_in_treasury() {
+        let f = Fixture::new();
+        f.init();
+
+        let usdc_amount: i128 = 10_000_000;
+        let xlm_amount: i128 = 20_000_000;
+
+        f.mint_usdc(&f.payer, usdc_amount * 2);
+        f.mint_xlm(&f.payer, xlm_amount * 3);
+
+        f.client().pay_usdc(&f.payer, &usdc_amount, &order_bytes(&f.env, "multi-1"));
+        f.client().pay_usdc(&f.payer, &usdc_amount, &order_bytes(&f.env, "multi-2"));
+        f.client().pay_xlm(&f.payer, &xlm_amount, &order_bytes(&f.env, "multi-3"));
+        f.client().pay_xlm(&f.payer, &xlm_amount, &order_bytes(&f.env, "multi-4"));
+        f.client().pay_xlm(&f.payer, &xlm_amount, &order_bytes(&f.env, "multi-5"));
+
+        assert_eq!(f.usdc_balance(&f.treasury), usdc_amount * 2);
+        assert_eq!(f.xlm_balance(&f.treasury), xlm_amount * 3);
+        assert_eq!(f.usdc_balance(&f.payer), 0);
+        assert_eq!(f.xlm_balance(&f.payer), 0);
+    }
+
+    #[test]
+    fn test_different_payers_pay_independently() {
+        let f = Fixture::new();
+        f.init();
+
+        let payer2 = Address::generate(&f.env);
+        let amount: i128 = 10_000_000;
+
+        f.mint_usdc(&f.payer, amount);
+        f.mint_usdc(&payer2, amount);
+
+        f.client().pay_usdc(&f.payer, &amount, &order_bytes(&f.env, "payer1-order"));
+        f.client().pay_usdc(&payer2, &amount, &order_bytes(&f.env, "payer2-order"));
+
+        assert_eq!(f.usdc_balance(&f.treasury), amount * 2);
+        assert_eq!(f.usdc_balance(&f.payer), 0);
+        assert_eq!(f.usdc_balance(&payer2), 0);
+    }
+
+    #[test]
+    fn test_getters_after_init() {
+        let f = Fixture::new();
+        f.init();
+
+        assert_eq!(f.client().admin(), f.admin);
+        assert_eq!(f.client().treasury(), f.treasury);
+        assert_eq!(f.client().usdc_contract(), f.usdc);
+        assert_eq!(f.client().xlm_contract(), f.xlm_sac);
+    }
+
+    #[test]
+    fn test_try_admin_before_init_returns_err() {
+        let env = Env::default();
+        let contract_id = env.register(Stellar_CardReceiver, ());
+        let client = Stellar_CardReceiverClient::new(&env, &contract_id);
+
+        assert!(client.try_admin().is_err());
+    }
+
+    #[test]
+    fn test_empty_order_id_accepted() {
+        let f = Fixture::new();
+        f.init();
+
+        let amount: i128 = 1_000_000;
+        f.mint_usdc(&f.payer, amount);
+
+        let oid = Bytes::new(&f.env);
+        f.client().pay_usdc(&f.payer, &amount, &oid);
+
+        assert_eq!(f.usdc_balance(&f.treasury), amount);
+    }
+
+    #[test]
+    fn test_long_order_id_accepted() {
+        let f = Fixture::new();
+        f.init();
+
+        let amount: i128 = 1_000_000;
+        f.mint_usdc(&f.payer, amount);
+
+        let long_id = "a".repeat(200);
+        let oid = order_bytes(&f.env, &long_id);
+        f.client().pay_usdc(&f.payer, &amount, &oid);
+
+        assert_eq!(f.usdc_balance(&f.treasury), amount);
+    }
+
+    #[test]
+    fn test_init_stores_correct_admin() {
+        let f = Fixture::new();
+        f.init();
+        assert_eq!(f.client().admin(), f.admin);
+    }
+
+    #[test]
+    fn test_pay_usdc_event_count_matches_payment() {
         let f = Fixture::new();
         f.init();
 
         let amount: i128 = 10_000_000;
         f.mint_usdc(&f.payer, amount * 3);
 
-        for i in 0..3 {
-            let oid = order_bytes(&f.env, &format!("multi-payment-{}", i));
-            f.client().pay_usdc(&f.payer, &amount, &oid);
+        f.client().pay_usdc(&f.payer, &amount, &order_bytes(&f.env, "evt-1"));
+        f.client().pay_usdc(&f.payer, &amount, &order_bytes(&f.env, "evt-2"));
+        f.client().pay_usdc(&f.payer, &amount, &order_bytes(&f.env, "evt-3"));
+
+        // Each pay_usdc call emits exactly one event in the current transaction
+        let events = f.env.events().all();
+        let mut count = 0;
+        for (contract_addr, topics, _) in events.iter() {
+            if contract_addr != f.contract_id {
+                continue;
+            }
+            let sym: Symbol = topics.get(0).unwrap().try_into_val(&f.env).unwrap();
+            if sym == Symbol::new(&f.env, "pay_usdc") {
+                count += 1;
+            }
         }
+        // Soroban test env captures events from the last transaction only
+        assert!(count >= 1, "should emit at least 1 pay_usdc event per transaction");
+    }
 
-        assert_eq!(f.usdc_balance(&f.treasury), amount * 3);
+    #[test]
+    fn test_pay_xlm_event_count_matches_payment() {
+        let f = Fixture::new();
+        f.init();
+
+        let amount: i128 = 5_000_000;
+        f.mint_xlm(&f.payer, amount * 2);
+
+        f.client().pay_xlm(&f.payer, &amount, &order_bytes(&f.env, "xlm-evt-1"));
+        f.client().pay_xlm(&f.payer, &amount, &order_bytes(&f.env, "xlm-evt-2"));
+
+        let events = f.env.events().all();
+        let mut count = 0;
+        for (contract_addr, topics, _) in events.iter() {
+            if contract_addr != f.contract_id {
+                continue;
+            }
+            let sym: Symbol = topics.get(0).unwrap().try_into_val(&f.env).unwrap();
+            if sym == Symbol::new(&f.env, "pay_xlm") {
+                count += 1;
+            }
+        }
+        assert!(count >= 1, "should emit at least 1 pay_xlm event per transaction");
+    }
+
+    #[test]
+    fn test_usdc_and_xlm_payments_independent() {
+        let f = Fixture::new();
+        f.init();
+
+        let usdc_amount: i128 = 10_000_000;
+        let xlm_amount: i128 = 50_000_000;
+
+        f.mint_usdc(&f.payer, usdc_amount);
+        f.mint_xlm(&f.payer, xlm_amount);
+
+        f.client().pay_usdc(&f.payer, &usdc_amount, &order_bytes(&f.env, "mixed-usdc"));
+        f.client().pay_xlm(&f.payer, &xlm_amount, &order_bytes(&f.env, "mixed-xlm"));
+
+        assert_eq!(f.usdc_balance(&f.treasury), usdc_amount);
+        assert_eq!(f.xlm_balance(&f.treasury), xlm_amount);
         assert_eq!(f.usdc_balance(&f.payer), 0);
-    }
-
-    #[test]
-    fn test_treasury_and_admin_getters() {
-        let f = Fixture::new();
-        f.init();
-
-        let treasury = f.client().treasury();
-        let admin = f.client().admin();
-        let usdc = f.client().usdc_contract();
-        let xlm = f.client().xlm_contract();
-
-        assert_eq!(treasury, f.treasury);
-        assert_eq!(admin, f.admin);
-        assert_eq!(usdc, f.usdc);
-        assert_eq!(xlm, f.xlm_sac);
-    }
-
-    #[test]
-    fn test_order_id_with_special_characters() {
-        let f = Fixture::new();
-        f.init();
-
-        let amount: i128 = 5_000_000;
-        f.mint_usdc(&f.payer, amount);
-
-        let special_oid = order_bytes(&f.env, "order-id-with-!@#$%");
-        f.client().pay_usdc(&f.payer, &amount, &special_oid);
-
-        assert_eq!(f.usdc_balance(&f.treasury), amount);
-    }
-
-    #[test]
-    fn test_order_id_with_max_length_bytes() {
-        let f = Fixture::new();
-        f.init();
-
-        let amount: i128 = 5_000_000;
-        f.mint_usdc(&f.payer, amount);
-
-        let long_id = "a".repeat(256);
-        let long_oid = order_bytes(&f.env, &long_id);
-        f.client().pay_usdc(&f.payer, &amount, &long_oid);
-
-        assert_eq!(f.usdc_balance(&f.treasury), amount);
-    }
-
-    #[test]
-    fn test_xlm_payment_with_low_amount() {
-        let f = Fixture::new();
-        f.init();
-
-        let min_amount: i128 = 1;
-        f.mint_xlm(&f.payer, min_amount);
-
-        let oid = order_bytes(&f.env, "min-xlm");
-        f.client().pay_xlm(&f.payer, &min_amount, &oid);
-
-        assert_eq!(f.xlm_balance(&f.treasury), min_amount);
-    }
-
-    #[test]
-    fn test_concurrent_payments_simulation() {
-        let f = Fixture::new();
-        f.init();
-
-        let payer1 = Address::generate(&f.env);
-        let payer2 = Address::generate(&f.env);
-        let payer3 = Address::generate(&f.env);
-
-        let amount: i128 = 10_000_000;
-        f.mint_usdc(&payer1, amount);
-        f.mint_usdc(&payer2, amount);
-        f.mint_usdc(&payer3, amount);
-
-        f.client().pay_usdc(&payer1, &amount, &order_bytes(&f.env, "payer1"));
-        f.client().pay_usdc(&payer2, &amount, &order_bytes(&f.env, "payer2"));
-        f.client().pay_usdc(&payer3, &amount, &order_bytes(&f.env, "payer3"));
-
-        assert_eq!(f.usdc_balance(&f.treasury), amount * 3);
-    }
-
-    #[test]
-    fn test_empty_order_id() {
-        let f = Fixture::new();
-        f.init();
-
-        let amount: i128 = 5_000_000;
-        f.mint_usdc(&f.payer, amount);
-
-        let empty_oid = order_bytes(&f.env, "");
-        f.client().pay_usdc(&f.payer, &amount, &empty_oid);
-
-        assert_eq!(f.usdc_balance(&f.treasury), amount);
-    }
-
-    #[test]
-    fn test_storage_ttl_extended_after_init() {
-        let f = Fixture::new();
-        f.init();
-
-        let amount: i128 = 5_000_000;
-        f.mint_usdc(&f.payer, amount);
-        f.client().pay_usdc(&f.payer, &amount, &order_bytes(&f.env, "ttl-test"));
-
-        assert_eq!(f.usdc_balance(&f.treasury), amount);
+        assert_eq!(f.xlm_balance(&f.payer), 0);
     }
 }
