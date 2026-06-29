@@ -1,5 +1,13 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Bytes, BytesN, Env, Symbol};
+use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Bytes, BytesN, Env, Map, Symbol};
+
+#[contracttype]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    Admin,
+    Operator,
+    Viewer,
+}
 
 #[contracttype]
 pub enum DataKey {
@@ -134,6 +142,62 @@ impl Stellar_CardReceiver {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
         env.deployer().update_current_contract_wasm(new_wasm_hash);
+    }
+
+    /// Grant a role to an address. Only admin may call this.
+    pub fn grant_role(env: Env, address: Address, role: Role) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+
+        let mut roles: Map<Address, Role> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Roles)
+            .unwrap_or_else(|| Map::new(&env));
+
+        roles.set(address, role);
+        env.storage().instance().set(&DataKey::Roles, &roles);
+        env.storage().instance().extend_ttl(17_280_000, 17_280_000);
+    }
+
+    /// Revoke a role from an address. Only admin may call this.
+    pub fn revoke_role(env: Env, address: Address) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+
+        if let Ok(mut roles) = env.storage().instance().get::<_, Map<Address, Role>>(&DataKey::Roles) {
+            roles.remove(address);
+            env.storage().instance().set(&DataKey::Roles, &roles);
+            env.storage().instance().extend_ttl(17_280_000, 17_280_000);
+        }
+    }
+
+    /// Get the role of an address. Returns none if no role is assigned.
+    pub fn get_role(env: Env, address: Address) -> Option<Role> {
+        if let Ok(roles) = env.storage().instance().get::<_, Map<Address, Role>>(&DataKey::Roles) {
+            roles.get(address).ok()
+        } else {
+            None
+        }
+    }
+
+    /// Check if an address has at least the specified role or higher.
+    pub fn has_role(env: Env, address: Address, required_role: Role) -> bool {
+        if let Ok(roles) = env.storage().instance().get::<_, Map<Address, Role>>(&DataKey::Roles) {
+            if let Ok(user_role) = roles.get(address) {
+                return Self::is_role_sufficient(&user_role, &required_role);
+            }
+        }
+        false
+    }
+
+    fn is_role_sufficient(user_role: &Role, required_role: &Role) -> bool {
+        match (user_role, required_role) {
+            (Role::Admin, _) => true,
+            (Role::Operator, Role::Operator) | (Role::Operator, Role::Viewer) => true,
+            (Role::Viewer, Role::Viewer) => true,
+            _ => false,
+        }
     }
 }
 
