@@ -161,7 +161,7 @@ describe('FilterChip', () => {
       children: 'Test',
     });
     const markup = renderToStaticMarkup(el);
-    expect(markup).toContain('border-radius: 999');
+    expect(markup).toMatch(/border-radius:\s*999/);
   });
 });
 
@@ -271,7 +271,8 @@ describe('PageHeader', () => {
       breadcrumb: createElement('span', null, 'Home > Dashboard > Settings'),
     });
     const markup = renderToStaticMarkup(el);
-    expect(markup).toContain('Home > Dashboard > Settings');
+    // React HTML-encodes '>' as '&gt;' in static markup
+    expect(markup).toContain('Home &gt; Dashboard &gt; Settings');
     expect(markup).toContain('Settings');
   });
 
@@ -320,13 +321,15 @@ describe('Card', () => {
   it('applies custom padding', () => {
     const el = createElement(Card, { padding: '2rem', children: 'Content' });
     const markup = renderToStaticMarkup(el);
-    expect(markup).toContain('padding: 2rem');
+    // React serializes inline styles without spaces after colons
+    expect(markup).toMatch(/padding:\s*2rem/);
   });
 
   it('applies custom style', () => {
     const el = createElement(Card, { style: { marginTop: '1rem' }, children: 'Content' });
     const markup = renderToStaticMarkup(el);
-    expect(markup).toContain('margin-top: 1rem');
+    // React serializes inline styles without spaces after colons
+    expect(markup).toMatch(/margin-top:\s*1rem/);
   });
 
   it('renders surface background and border', () => {
