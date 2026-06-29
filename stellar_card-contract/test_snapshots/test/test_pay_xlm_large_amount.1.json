@@ -86,7 +86,7 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 50000000
+                    "lo": 999999999999999
                   }
                 }
               ]
@@ -111,11 +111,11 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 50000000
+                    "lo": 999999999999999
                   }
                 },
                 {
-                  "bytes": "746573742d6f726465722d786c6d"
+                  "bytes": "786c6d2d6c61726765"
                 }
               ]
             }
@@ -136,7 +136,7 @@
                     {
                       "i128": {
                         "hi": 0,
-                        "lo": 50000000
+                        "lo": 999999999999999
                       }
                     }
                   ]
@@ -147,7 +147,8 @@
           ]
         }
       ]
-    ]
+    ],
+    []
   ],
   "ledger": {
     "protocol_version": 22,
@@ -710,7 +711,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 50000000
+                          "lo": 999999999999999
                         }
                       }
                     },
@@ -947,67 +948,5 @@
       ]
     ]
   },
-  "events": [
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "d63a954726751a876d37290072af1ee723d7d761eec3bf4191849d2116acdc73",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "transfer"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-              },
-              {
-                "string": "aaa:GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAL7NV"
-              }
-            ],
-            "data": {
-              "i128": {
-                "hi": 0,
-                "lo": 50000000
-              }
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000006",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "pay_xlm"
-              },
-              {
-                "bytes": "746573742d6f726465722d786c6d"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-              }
-            ],
-            "data": {
-              "i128": {
-                "hi": 0,
-                "lo": 50000000
-              }
-            }
-          }
-        }
-      },
-      "failed_call": false
-    }
-  ]
+  "events": []
 }
