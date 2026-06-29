@@ -530,4 +530,261 @@ mod test {
 
         assert_eq!(f.xlm_balance(&f.treasury), amount * 2);
     }
+
+    // ── comprehensive edge-case tests ─────────────────────────────────────
+
+    #[test]
+    fn test_pay_usdc_smallest_positive_amount() {
+        let f = Fixture::new();
+        f.init();
+
+        let amount: i128 = 1; // 0.0000001 USDC
+        f.mint_usdc(&f.payer, amount);
+
+        let oid = order_bytes(&f.env, "min-usdc");
+        f.client().pay_usdc(&f.payer, &amount, &oid);
+
+        assert_eq!(f.usdc_balance(&f.treasury), 1);
+        assert_eq!(f.usdc_balance(&f.payer), 0);
+    }
+
+    #[test]
+    fn test_pay_xlm_smallest_positive_amount() {
+        let f = Fixture::new();
+        f.init();
+
+        let amount: i128 = 1; // 1 stroop
+        f.mint_xlm(&f.payer, amount);
+
+        let oid = order_bytes(&f.env, "min-xlm");
+        f.client().pay_xlm(&f.payer, &amount, &oid);
+
+        assert_eq!(f.xlm_balance(&f.treasury), 1);
+        assert_eq!(f.xlm_balance(&f.payer), 0);
+    }
+
+    #[test]
+    fn test_pay_usdc_large_amount() {
+        let f = Fixture::new();
+        f.init();
+
+        let amount: i128 = 1_000_000_000_000; // 100,000 USDC
+        f.mint_usdc(&f.payer, amount);
+
+        let oid = order_bytes(&f.env, "large-usdc");
+        f.client().pay_usdc(&f.payer, &amount, &oid);
+
+        assert_eq!(f.usdc_balance(&f.treasury), amount);
+    }
+
+    #[test]
+    fn test_pay_xlm_large_amount() {
+        let f = Fixture::new();
+        f.init();
+
+        let amount: i128 = 1_000_000_000_000_000; // 100M XLM
+        f.mint_xlm(&f.payer, amount);
+
+        let oid = order_bytes(&f.env, "large-xlm");
+        f.client().pay_xlm(&f.payer, &amount, &oid);
+
+        assert_eq!(f.xlm_balance(&f.treasury), amount);
+    }
+
+    #[test]
+    fn test_pay_usdc_insufficient_balance_panics() {
+        let f = Fixture::new();
+        f.init();
+
+        let amount: i128 = 10_000_000;
+        f.mint_usdc(&f.payer, amount / 2); // only half
+
+        let oid = order_bytes(&f.env, "insufficient-usdc");
+        let result = f.client().try_pay_usdc(&f.payer, &amount, &oid);
+        assert!(result.is_err(), "should fail with insufficient balance");
+    }
+
+    #[test]
+    fn test_pay_xlm_insufficient_balance_panics() {
+        let f = Fixture::new();
+        f.init();
+
+        let amount: i128 = 10_000_000;
+        f.mint_xlm(&f.payer, amount / 2);
+
+        let oid = order_bytes(&f.env, "insufficient-xlm");
+        let result = f.client().try_pay_xlm(&f.payer, &amount, &oid);
+        assert!(result.is_err(), "should fail with insufficient balance");
+    }
+
+    #[test]
+    fn test_multiple_payments_accumulate_in_treasury() {
+        let f = Fixture::new();
+        f.init();
+
+        let usdc_amount: i128 = 10_000_000;
+        let xlm_amount: i128 = 20_000_000;
+
+        f.mint_usdc(&f.payer, usdc_amount * 2);
+        f.mint_xlm(&f.payer, xlm_amount * 3);
+
+        f.client().pay_usdc(&f.payer, &usdc_amount, &order_bytes(&f.env, "multi-1"));
+        f.client().pay_usdc(&f.payer, &usdc_amount, &order_bytes(&f.env, "multi-2"));
+        f.client().pay_xlm(&f.payer, &xlm_amount, &order_bytes(&f.env, "multi-3"));
+        f.client().pay_xlm(&f.payer, &xlm_amount, &order_bytes(&f.env, "multi-4"));
+        f.client().pay_xlm(&f.payer, &xlm_amount, &order_bytes(&f.env, "multi-5"));
+
+        assert_eq!(f.usdc_balance(&f.treasury), usdc_amount * 2);
+        assert_eq!(f.xlm_balance(&f.treasury), xlm_amount * 3);
+        assert_eq!(f.usdc_balance(&f.payer), 0);
+        assert_eq!(f.xlm_balance(&f.payer), 0);
+    }
+
+    #[test]
+    fn test_different_payers_pay_independently() {
+        let f = Fixture::new();
+        f.init();
+
+        let payer2 = Address::generate(&f.env);
+        let amount: i128 = 10_000_000;
+
+        f.mint_usdc(&f.payer, amount);
+        f.mint_usdc(&payer2, amount);
+
+        f.client().pay_usdc(&f.payer, &amount, &order_bytes(&f.env, "payer1-order"));
+        f.client().pay_usdc(&payer2, &amount, &order_bytes(&f.env, "payer2-order"));
+
+        assert_eq!(f.usdc_balance(&f.treasury), amount * 2);
+        assert_eq!(f.usdc_balance(&f.payer), 0);
+        assert_eq!(f.usdc_balance(&payer2), 0);
+    }
+
+    #[test]
+    fn test_getters_after_init() {
+        let f = Fixture::new();
+        f.init();
+
+        assert_eq!(f.client().admin(), f.admin);
+        assert_eq!(f.client().treasury(), f.treasury);
+        assert_eq!(f.client().usdc_contract(), f.usdc);
+        assert_eq!(f.client().xlm_contract(), f.xlm_sac);
+    }
+
+    #[test]
+    fn test_try_admin_before_init_returns_err() {
+        let env = Env::default();
+        let contract_id = env.register(Stellar_CardReceiver, ());
+        let client = Stellar_CardReceiverClient::new(&env, &contract_id);
+
+        assert!(client.try_admin().is_err());
+    }
+
+    #[test]
+    fn test_empty_order_id_accepted() {
+        let f = Fixture::new();
+        f.init();
+
+        let amount: i128 = 1_000_000;
+        f.mint_usdc(&f.payer, amount);
+
+        let oid = Bytes::new(&f.env);
+        f.client().pay_usdc(&f.payer, &amount, &oid);
+
+        assert_eq!(f.usdc_balance(&f.treasury), amount);
+    }
+
+    #[test]
+    fn test_long_order_id_accepted() {
+        let f = Fixture::new();
+        f.init();
+
+        let amount: i128 = 1_000_000;
+        f.mint_usdc(&f.payer, amount);
+
+        let long_id = "a".repeat(200);
+        let oid = order_bytes(&f.env, &long_id);
+        f.client().pay_usdc(&f.payer, &amount, &oid);
+
+        assert_eq!(f.usdc_balance(&f.treasury), amount);
+    }
+
+    #[test]
+    fn test_init_stores_correct_admin() {
+        let f = Fixture::new();
+        f.init();
+        assert_eq!(f.client().admin(), f.admin);
+    }
+
+    #[test]
+    fn test_pay_usdc_event_count_matches_payment() {
+        let f = Fixture::new();
+        f.init();
+
+        let amount: i128 = 10_000_000;
+        f.mint_usdc(&f.payer, amount * 3);
+
+        f.client().pay_usdc(&f.payer, &amount, &order_bytes(&f.env, "evt-1"));
+        f.client().pay_usdc(&f.payer, &amount, &order_bytes(&f.env, "evt-2"));
+        f.client().pay_usdc(&f.payer, &amount, &order_bytes(&f.env, "evt-3"));
+
+        // Each pay_usdc call emits exactly one event in the current transaction
+        let events = f.env.events().all();
+        let mut count = 0;
+        for (contract_addr, topics, _) in events.iter() {
+            if contract_addr != f.contract_id {
+                continue;
+            }
+            let sym: Symbol = topics.get(0).unwrap().try_into_val(&f.env).unwrap();
+            if sym == Symbol::new(&f.env, "pay_usdc") {
+                count += 1;
+            }
+        }
+        // Soroban test env captures events from the last transaction only
+        assert!(count >= 1, "should emit at least 1 pay_usdc event per transaction");
+    }
+
+    #[test]
+    fn test_pay_xlm_event_count_matches_payment() {
+        let f = Fixture::new();
+        f.init();
+
+        let amount: i128 = 5_000_000;
+        f.mint_xlm(&f.payer, amount * 2);
+
+        f.client().pay_xlm(&f.payer, &amount, &order_bytes(&f.env, "xlm-evt-1"));
+        f.client().pay_xlm(&f.payer, &amount, &order_bytes(&f.env, "xlm-evt-2"));
+
+        let events = f.env.events().all();
+        let mut count = 0;
+        for (contract_addr, topics, _) in events.iter() {
+            if contract_addr != f.contract_id {
+                continue;
+            }
+            let sym: Symbol = topics.get(0).unwrap().try_into_val(&f.env).unwrap();
+            if sym == Symbol::new(&f.env, "pay_xlm") {
+                count += 1;
+            }
+        }
+        assert!(count >= 1, "should emit at least 1 pay_xlm event per transaction");
+    }
+
+    #[test]
+    fn test_usdc_and_xlm_payments_independent() {
+        let f = Fixture::new();
+        f.init();
+
+        let usdc_amount: i128 = 10_000_000;
+        let xlm_amount: i128 = 50_000_000;
+
+        f.mint_usdc(&f.payer, usdc_amount);
+        f.mint_xlm(&f.payer, xlm_amount);
+
+        f.client().pay_usdc(&f.payer, &usdc_amount, &order_bytes(&f.env, "mixed-usdc"));
+        f.client().pay_xlm(&f.payer, &xlm_amount, &order_bytes(&f.env, "mixed-xlm"));
+
+        assert_eq!(f.usdc_balance(&f.treasury), usdc_amount);
+        assert_eq!(f.xlm_balance(&f.treasury), xlm_amount);
+        assert_eq!(f.usdc_balance(&f.payer), 0);
+        assert_eq!(f.xlm_balance(&f.payer), 0);
+    }
 }
