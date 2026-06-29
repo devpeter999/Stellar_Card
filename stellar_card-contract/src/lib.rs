@@ -7,6 +7,7 @@ pub enum DataKey {
     UsdcContract,
     XlmContract,
     Admin,
+    ReentrancyGuard,
 }
 
 #[contract]
@@ -39,9 +40,21 @@ impl Stellar_CardReceiver {
         env.storage().instance().set(&DataKey::UsdcContract, &usdc_contract);
         env.storage().instance().set(&DataKey::XlmContract, &xlm_contract);
 
-        // Keep instance storage alive to avoid state-eviction surprises on
-        // long-lived deployments with infrequent writes.
         env.storage().instance().extend_ttl(17_280_000, 17_280_000);
+    }
+
+    /// Acquire the reentrancy guard. Panics if already held.
+    fn _enter(env: &Env) {
+        let key = DataKey::ReentrancyGuard;
+        if env.storage().instance().get::<_, bool>(&key).unwrap_or(false) {
+            panic!("reentrancy detected");
+        }
+        env.storage().instance().set(&key, &true);
+    }
+
+    /// Release the reentrancy guard.
+    fn _exit(env: &Env) {
+        env.storage().instance().set(&DataKey::ReentrancyGuard, &false);
     }
 
     /// Transfer `amount` USDC (in micro-USDC, 7 d.p.) from `from` to treasury.
@@ -55,8 +68,12 @@ impl Stellar_CardReceiver {
         let treasury: Address = env.storage().instance().get(&DataKey::Treasury).unwrap();
         let usdc_contract: Address = env.storage().instance().get(&DataKey::UsdcContract).unwrap();
 
+        Self::_enter(&env);
+
         let token_client = token::Client::new(&env, &usdc_contract);
         token_client.transfer(&from, &treasury, &amount);
+
+        Self::_exit(&env);
 
         env.events().publish(
             (Symbol::new(&env, "pay_usdc"), order_id, from),
@@ -77,8 +94,12 @@ impl Stellar_CardReceiver {
         let treasury: Address = env.storage().instance().get(&DataKey::Treasury).unwrap();
         let xlm_contract: Address = env.storage().instance().get(&DataKey::XlmContract).unwrap();
 
+        Self::_enter(&env);
+
         let token_client = token::Client::new(&env, &xlm_contract);
         token_client.transfer(&from, &treasury, &amount);
+
+        Self::_exit(&env);
 
         env.events().publish(
             (Symbol::new(&env, "pay_xlm"), order_id, from),
@@ -452,5 +473,61 @@ mod test {
         // Should panic because admin.require_auth() fires and no auth is mocked
         let result = client.try_init(&admin, &treasury, &usdc, &xlm_sac);
         assert!(result.is_err(), "init should require admin authorization");
+    }
+
+    // ── reentrancy guard tests ──────────────────────────────────────────────
+
+    #[test]
+    #[should_panic(expected = "reentrancy detected")]
+    fn test_reentrancy_guard_panics_on_reentry() {
+        let f = Fixture::new();
+        f.init();
+
+        let amount: i128 = 10_000_000;
+        f.mint_usdc(&f.payer, amount * 2);
+
+        // Set the reentrancy guard from within the contract context
+        f.env.as_contract(&f.contract_id, || {
+            f.env.storage().instance().set(&DataKey::ReentrancyGuard, &true);
+        });
+
+        let oid1 = order_bytes(&f.env, "reentry-1");
+        f.client().pay_usdc(&f.payer, &amount, &oid1);
+    }
+
+    #[test]
+    fn test_reentrancy_guard_resets_after_successful_transfer() {
+        let f = Fixture::new();
+        f.init();
+
+        let amount: i128 = 5_000_000;
+        f.mint_usdc(&f.payer, amount * 2);
+
+        let oid1 = order_bytes(&f.env, "sequential-1");
+        f.client().pay_usdc(&f.payer, &amount, &oid1);
+
+        // Guard should be reset — second call should succeed
+        let oid2 = order_bytes(&f.env, "sequential-2");
+        f.client().pay_usdc(&f.payer, &amount, &oid2);
+
+        assert_eq!(f.usdc_balance(&f.treasury), amount * 2);
+        assert_eq!(f.usdc_balance(&f.payer), 0);
+    }
+
+    #[test]
+    fn test_reentrancy_guard_resets_for_xlm_after_successful_transfer() {
+        let f = Fixture::new();
+        f.init();
+
+        let amount: i128 = 5_000_000;
+        f.mint_xlm(&f.payer, amount * 2);
+
+        let oid1 = order_bytes(&f.env, "xlm-sequential-1");
+        f.client().pay_xlm(&f.payer, &amount, &oid1);
+
+        let oid2 = order_bytes(&f.env, "xlm-sequential-2");
+        f.client().pay_xlm(&f.payer, &amount, &oid2);
+
+        assert_eq!(f.xlm_balance(&f.treasury), amount * 2);
     }
 }
