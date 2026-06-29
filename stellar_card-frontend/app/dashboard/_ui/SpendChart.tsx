@@ -6,6 +6,7 @@
 
 import { useMemo } from 'react';
 import { formatUsd } from '../_lib/format';
+import { typography } from './tokens';
 
 interface Bucket {
   date: string;
@@ -52,7 +53,7 @@ export function SpendChart({ data, height = 200 }: Props) {
           alignItems: 'center',
           justifyContent: 'center',
           color: 'var(--fg-dim)',
-          fontSize: '0.78rem',
+          fontSize: typography.size.md,
         }}
       >
         No spend data for this period
@@ -108,7 +109,7 @@ export function SpendChart({ data, height = 200 }: Props) {
           justifyContent: 'space-between',
           fontSize: '0.65rem',
           color: 'var(--fg-dim)',
-          fontFamily: 'var(--font-mono)',
+          fontFamily: typography.fontMono,
         }}
       >
         {data.map((b, i) =>
@@ -119,7 +120,7 @@ export function SpendChart({ data, height = 200 }: Props) {
           ),
         )}
       </div>
-      <div style={{ fontSize: '0.68rem', color: 'var(--fg-dim)' }}>Peak: {formatUsd(max)}</div>
+      <div style={{ fontSize: typography.size.sm, color: 'var(--fg-dim)' }}>Peak: {formatUsd(max)}</div>
     </div>
   );
 }

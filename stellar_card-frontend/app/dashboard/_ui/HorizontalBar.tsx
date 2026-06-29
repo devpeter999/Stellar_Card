@@ -2,6 +2,7 @@
 // error breakdown. Pure SVG so it inherits the theme.
 
 import type { ReactNode } from 'react';
+import { typography } from './tokens';
 
 interface Row {
   label: ReactNode;
@@ -59,8 +60,8 @@ export function HorizontalBar({ rows, max, height = 14 }: Props) {
               <span
                 style={{
                   color: 'var(--fg-dim)',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.7rem',
+                  fontFamily: typography.fontMono,
+                  fontSize: typography.size.base,
                 }}
               >
                 {r.trailing}
