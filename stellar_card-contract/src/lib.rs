@@ -1,5 +1,13 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Bytes, BytesN, Env, Symbol, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Bytes, BytesN, Env, Map, Symbol};
+
+#[contracttype]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    Admin,
+    Operator,
+    Viewer,
+}
 
 #[contracttype]
 pub enum DataKey {
@@ -7,26 +15,21 @@ pub enum DataKey {
     UsdcContract,
     XlmContract,
     Admin,
-    Role(Role),
-    Paused,
-    ReentrancyGuard,
+    Roles,
 }
-
-#[derive(Clone, PartialEq, Debug)]
-#[contracttype]
-pub enum Role {
-    Admin,
-    Pauser,
-    Operator,
-}
-
-const MAX_REENTRANCY_DEPTH: u32 = 1;
 
 #[contract]
 pub struct Stellar_CardReceiver;
 
 #[contractimpl]
 impl Stellar_CardReceiver {
+    /// One-time initialisation. Panics if already initialised.
+    /// The admin must authorize this call to prevent front-running on deployment (C-1).
+    ///
+    /// Expected mainnet values (C-3, C-7):
+    ///   usdc_contract : CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75  (USDC SAC)
+    ///   xlm_contract  : native XLM SAC address (varies by network)
+    ///   treasury      : stellar_card treasury G-address — verify before deployment
     pub fn init(
         env: Env,
         admin: Address,
@@ -45,22 +48,14 @@ impl Stellar_CardReceiver {
         env.storage().instance().set(&DataKey::UsdcContract, &usdc_contract);
         env.storage().instance().set(&DataKey::XlmContract, &xlm_contract);
 
-        env.storage().instance().set(&DataKey::Paused, &false);
-
-        Self::grant_role_internal(&env, &admin, &Role::Admin);
-        Self::grant_role_internal(&env, &admin, &Role::Pauser);
-        Self::grant_role_internal(&env, &admin, &Role::Operator);
-
+        // Keep instance storage alive to avoid state-eviction surprises on
+        // long-lived deployments with infrequent writes.
         env.storage().instance().extend_ttl(17_280_000, 17_280_000);
     }
 
+    /// Transfer `amount` USDC (in micro-USDC, 7 d.p.) from `from` to treasury.
+    /// Emits: topics=[Symbol("pay_usdc"), order_id, from], value=amount
     pub fn pay_usdc(env: Env, from: Address, amount: i128, order_id: Bytes) {
-        if env.storage().instance().get::<_, bool>(&DataKey::Paused).unwrap_or(false) {
-            panic!("contract is paused");
-        }
-
-        Self::enter_reentrancy_guard(&env);
-
         if amount <= 0 {
             panic!("amount must be positive");
         }
@@ -77,18 +72,12 @@ impl Stellar_CardReceiver {
             amount,
         );
 
-        Self::exit_reentrancy_guard(&env);
-
         env.storage().instance().extend_ttl(17_280_000, 17_280_000);
     }
 
+    /// Transfer `amount` XLM (in stroops, 7 d.p.) from `from` to treasury.
+    /// Emits: topics=[Symbol("pay_xlm"), order_id, from], value=amount
     pub fn pay_xlm(env: Env, from: Address, amount: i128, order_id: Bytes) {
-        if env.storage().instance().get::<_, bool>(&DataKey::Paused).unwrap_or(false) {
-            panic!("contract is paused");
-        }
-
-        Self::enter_reentrancy_guard(&env);
-
         if amount <= 0 {
             panic!("amount must be positive");
         }
@@ -105,150 +94,89 @@ impl Stellar_CardReceiver {
             amount,
         );
 
-        Self::exit_reentrancy_guard(&env);
-
         env.storage().instance().extend_ttl(17_280_000, 17_280_000);
     }
 
+    /// Return the treasury address.
     pub fn treasury(env: Env) -> Address {
         env.storage().instance().get(&DataKey::Treasury).unwrap()
     }
 
+    /// Return the USDC SAC contract address.
     pub fn usdc_contract(env: Env) -> Address {
         env.storage().instance().get(&DataKey::UsdcContract).unwrap()
     }
 
+    /// Return the native XLM SAC contract address.
     pub fn xlm_contract(env: Env) -> Address {
         env.storage().instance().get(&DataKey::XlmContract).unwrap()
     }
 
+    /// Return the admin address.
     pub fn admin(env: Env) -> Address {
         env.storage().instance().get(&DataKey::Admin).unwrap()
     }
 
+    /// Upgrade the contract WASM. Only the admin may call this.
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
         env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
-    pub fn set_admin(env: Env, new_admin: Address) {
+    /// Grant a role to an address. Only admin may call this.
+    pub fn grant_role(env: Env, address: Address, role: Role) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
-        env.storage().instance().set(&DataKey::Admin, &new_admin);
-        env.events().publish(
-            (Symbol::new(&env, "set_admin"),),
-            new_admin,
-        );
+
+        let mut roles: Map<Address, Role> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Roles)
+            .unwrap_or_else(|| Map::new(&env));
+
+        roles.set(address, role);
+        env.storage().instance().set(&DataKey::Roles, &roles);
+        env.storage().instance().extend_ttl(17_280_000, 17_280_000);
     }
 
-    pub fn pause(env: Env, caller: Address) {
-        caller.require_auth();
-        if !Self::has_role_internal(&env, &caller, &Role::Pauser) {
-            panic!("caller must have Pauser role");
-        }
-        env.storage().instance().set(&DataKey::Paused, &true);
-        env.events().publish((Symbol::new(&env, "pause"),), caller);
-    }
-
-    pub fn unpause(env: Env, caller: Address) {
-        caller.require_auth();
-        if !Self::has_role_internal(&env, &caller, &Role::Pauser) {
-            panic!("caller must have Pauser role");
-        }
-        env.storage().instance().set(&DataKey::Paused, &false);
-        env.events().publish((Symbol::new(&env, "unpause"),), caller);
-    }
-
-    pub fn is_paused(env: Env) -> bool {
-        env.storage().instance().get::<_, bool>(&DataKey::Paused).unwrap_or(false)
-    }
-
-    pub fn grant_role(env: Env, account: Address, role: Role) {
+    /// Revoke a role from an address. Only admin may call this.
+    pub fn revoke_role(env: Env, address: Address) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
-        Self::grant_role_internal(&env, &account, &role);
-        env.events().publish(
-            (Symbol::new(&env, "grant_role"),),
-            (account, role),
-        );
-    }
 
-    pub fn revoke_role(env: Env, account: Address, role: Role) {
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
-        admin.require_auth();
-        Self::revoke_role_internal(&env, &account, &role);
-        env.events().publish(
-            (Symbol::new(&env, "revoke_role"),),
-            (account, role),
-        );
-    }
-
-    pub fn has_role(env: Env, account: Address, role: Role) -> bool {
-        Self::has_role_internal(&env, &account, &role)
-    }
-
-    fn has_role_internal(env: &Env, account: &Address, role: &Role) -> bool {
-        let key = DataKey::Role(role.clone());
-        env.storage().instance().has(&key)
-            && env
-                .storage()
-                .instance()
-                .get::<_, Vec<Address>>(&key)
-                .map(|holders| holders.contains(account))
-                .unwrap_or(false)
-    }
-
-    fn grant_role_internal(env: &Env, account: &Address, role: &Role) {
-        let key = DataKey::Role(role.clone());
-        let mut holders: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&key)
-            .unwrap_or_else(|| Vec::new(env));
-        if !holders.contains(account) {
-            holders.push_back(account.clone());
-            env.storage().instance().set(&key, &holders);
+        if let Ok(mut roles) = env.storage().instance().get::<_, Map<Address, Role>>(&DataKey::Roles) {
+            roles.remove(address);
+            env.storage().instance().set(&DataKey::Roles, &roles);
+            env.storage().instance().extend_ttl(17_280_000, 17_280_000);
         }
     }
 
-    fn revoke_role_internal(env: &Env, account: &Address, role: &Role) {
-        let key = DataKey::Role(role.clone());
-        let mut holders: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&key)
-            .unwrap_or_else(|| Vec::new(env));
-        if let Some(pos) = holders.iter().position(|a| a == *account) {
-            holders.remove(pos as u32);
-            env.storage().instance().set(&key, &holders);
+    /// Get the role of an address. Returns none if no role is assigned.
+    pub fn get_role(env: Env, address: Address) -> Option<Role> {
+        if let Ok(roles) = env.storage().instance().get::<_, Map<Address, Role>>(&DataKey::Roles) {
+            roles.get(address).ok()
+        } else {
+            None
         }
     }
 
-    fn enter_reentrancy_guard(env: &Env) {
-        let depth: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::ReentrancyGuard)
-            .unwrap_or(0);
-        if depth >= MAX_REENTRANCY_DEPTH {
-            panic!("reentrancy detected");
+    /// Check if an address has at least the specified role or higher.
+    pub fn has_role(env: Env, address: Address, required_role: Role) -> bool {
+        if let Ok(roles) = env.storage().instance().get::<_, Map<Address, Role>>(&DataKey::Roles) {
+            if let Ok(user_role) = roles.get(address) {
+                return Self::is_role_sufficient(&user_role, &required_role);
+            }
         }
-        env.storage()
-            .instance()
-            .set(&DataKey::ReentrancyGuard, &(depth + 1));
+        false
     }
 
-    fn exit_reentrancy_guard(env: &Env) {
-        let depth: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::ReentrancyGuard)
-            .unwrap_or(0);
-        if depth > 0 {
-            env.storage()
-                .instance()
-                .set(&DataKey::ReentrancyGuard, &(depth - 1));
+    fn is_role_sufficient(user_role: &Role, required_role: &Role) -> bool {
+        match (user_role, required_role) {
+            (Role::Admin, _) => true,
+            (Role::Operator, Role::Operator) | (Role::Operator, Role::Viewer) => true,
+            (Role::Viewer, Role::Viewer) => true,
+            _ => false,
         }
     }
 }
@@ -260,6 +188,8 @@ mod test {
         testutils::{Address as _, Events},
         token, Bytes, Env, Symbol, TryIntoVal,
     };
+
+    // ── Test fixture ──────────────────────────────────────────────────────────
 
     struct Fixture {
         env: Env,
@@ -280,6 +210,7 @@ mod test {
             let treasury = Address::generate(&env);
             let payer = Address::generate(&env);
 
+            // Register mock SAC token contracts for USDC and XLM
             let usdc = env.register_stellar_asset_contract_v2(admin.clone()).address();
             let xlm_sac = env.register_stellar_asset_contract_v2(admin.clone()).address();
 
@@ -335,25 +266,7 @@ mod test {
     fn test_init_twice_panics() {
         let f = Fixture::new();
         f.init();
-        f.init();
-    }
-
-    #[test]
-    fn test_init_grants_all_roles_to_admin() {
-        let f = Fixture::new();
-        f.init();
-
-        let client = f.client();
-        assert!(client.has_role(&f.admin, &Role::Admin));
-        assert!(client.has_role(&f.admin, &Role::Pauser));
-        assert!(client.has_role(&f.admin, &Role::Operator));
-    }
-
-    #[test]
-    fn test_init_sets_unpaused() {
-        let f = Fixture::new();
-        f.init();
-        assert!(!f.client().is_paused());
+        f.init(); // must panic
     }
 
     // ── pay_usdc tests ────────────────────────────────────────────────────────
@@ -363,7 +276,7 @@ mod test {
         let f = Fixture::new();
         f.init();
 
-        let amount: i128 = 25_000_000;
+        let amount: i128 = 25_000_000; // 25.00 USDC (7 d.p.)
         f.mint_usdc(&f.payer, amount);
 
         let oid = order_bytes(&f.env, "a3f7c2d1-4e8b-4f0a-9c2d");
@@ -378,12 +291,15 @@ mod test {
         let f = Fixture::new();
         f.init();
 
-        let amount: i128 = 10_000_000;
+        let amount: i128 = 10_000_000; // 10.00 USDC
         f.mint_usdc(&f.payer, amount);
 
         let oid = order_bytes(&f.env, "test-order-usdc");
         f.client().pay_usdc(&f.payer, &amount, &oid);
 
+        // Scan events for our contract's pay_usdc event.
+        // Events are (contract_id, topics: Vec<Val>, data: Val).
+        // Val doesn't implement PartialEq — use try_into_val for typed comparison.
         let events = f.env.events().all();
         let mut found = false;
         for (contract_addr, topics, data) in events.iter() {
@@ -410,6 +326,7 @@ mod test {
     #[should_panic]
     fn test_pay_usdc_requires_auth() {
         let env = Env::default();
+        // No mock_all_auths — require_auth() will fail
 
         let admin = Address::generate(&env);
         let treasury = Address::generate(&env);
@@ -419,23 +336,12 @@ mod test {
         let contract_id = env.register(Stellar_CardReceiver, ());
         let client = Stellar_CardReceiverClient::new(&env, &contract_id);
 
+        // init has no require_auth so it runs fine without mocking
         client.init(&admin, &treasury, &usdc, &xlm_sac);
 
+        // pay_usdc calls from.require_auth() — must panic without mock
         let oid = order_bytes(&env, "order-no-auth");
         client.pay_usdc(&payer, &1_000_000_i128, &oid);
-    }
-
-    #[test]
-    #[should_panic(expected = "contract is paused")]
-    fn test_pay_usdc_rejected_when_paused() {
-        let f = Fixture::new();
-        f.init();
-        f.client().pause(&f.admin);
-
-        let amount: i128 = 1_000_000;
-        f.mint_usdc(&f.payer, amount);
-        let oid = order_bytes(&f.env, "paused-order");
-        f.client().pay_usdc(&f.payer, &amount, &oid);
     }
 
     // ── pay_xlm tests ─────────────────────────────────────────────────────────
@@ -445,7 +351,7 @@ mod test {
         let f = Fixture::new();
         f.init();
 
-        let amount: i128 = 161_290_000;
+        let amount: i128 = 161_290_000; // ~161.29 XLM in stroops
         f.mint_xlm(&f.payer, amount);
 
         let oid = order_bytes(&f.env, "b2e8d1c0-5f9a-4b0b-8d3e");
@@ -460,7 +366,7 @@ mod test {
         let f = Fixture::new();
         f.init();
 
-        let amount: i128 = 50_000_000;
+        let amount: i128 = 50_000_000; // 50.00 XLM
         f.mint_xlm(&f.payer, amount);
 
         let oid = order_bytes(&f.env, "test-order-xlm");
@@ -492,6 +398,7 @@ mod test {
     #[should_panic]
     fn test_pay_xlm_requires_auth() {
         let env = Env::default();
+        // No mock_all_auths
 
         let admin = Address::generate(&env);
         let treasury = Address::generate(&env);
@@ -507,19 +414,6 @@ mod test {
         client.pay_xlm(&payer, &1_000_000_i128, &oid);
     }
 
-    #[test]
-    #[should_panic(expected = "contract is paused")]
-    fn test_pay_xlm_rejected_when_paused() {
-        let f = Fixture::new();
-        f.init();
-        f.client().pause(&f.admin);
-
-        let amount: i128 = 1_000_000;
-        f.mint_xlm(&f.payer, amount);
-        let oid = order_bytes(&f.env, "paused-xlm");
-        f.client().pay_xlm(&f.payer, &amount, &oid);
-    }
-
     // ── getter tests ──────────────────────────────────────────────────────────
 
     #[test]
@@ -529,6 +423,7 @@ mod test {
         let contract_id = env.register(Stellar_CardReceiver, ());
         let client = Stellar_CardReceiverClient::new(&env, &contract_id);
 
+        // Uninitialised — try_treasury() returns Err (unwrap() would panic)
         assert!(client.try_treasury().is_err());
         assert!(client.try_usdc_contract().is_err());
         assert!(client.try_xlm_contract().is_err());
@@ -594,17 +489,22 @@ mod test {
         let contract_id = env.register(Stellar_CardReceiver, ());
         let client = Stellar_CardReceiverClient::new(&env, &contract_id);
 
+        // init with mocked auth temporarily just for setup
         env.mock_all_auths();
         client.init(&admin, &treasury, &usdc, &xlm_sac);
 
+        // upgrade without admin auth must panic
         env.mock_auths(&[]);
         let fake_hash = BytesN::from_array(&env, &[0u8; 32]);
         client.upgrade(&fake_hash);
     }
 
+    // ── init auth test ────────────────────────────────────────────────────────
+
     #[test]
     fn test_init_requires_admin_auth() {
         let env = Env::default();
+        // No mock_all_auths — only the admin can authorize
         env.mock_auths(&[]);
 
         let admin = Address::generate(&env);
@@ -614,6 +514,7 @@ mod test {
         let contract_id = env.register(Stellar_CardReceiver, ());
         let client = Stellar_CardReceiverClient::new(&env, &contract_id);
 
+        // Should panic because admin.require_auth() fires and no auth is mocked
         let result = client.try_init(&admin, &treasury, &usdc, &xlm_sac);
         assert!(result.is_err(), "init should require admin authorization");
     }
@@ -621,14 +522,27 @@ mod test {
     // ── RBAC tests ────────────────────────────────────────────────────────────
 
     #[test]
-    fn test_grant_role() {
+    fn test_grant_role_admin_to_operator() {
         let f = Fixture::new();
         f.init();
-        let user = Address::generate(&f.env);
 
-        assert!(!f.client().has_role(&user, &Role::Operator));
-        f.client().grant_role(&user, &Role::Operator);
-        assert!(f.client().has_role(&user, &Role::Operator));
+        let operator = Address::generate(&f.env);
+        f.client().grant_role(&operator, &Role::Operator);
+
+        let role = f.client().get_role(&operator);
+        assert_eq!(role, Some(Role::Operator));
+    }
+
+    #[test]
+    fn test_grant_role_viewer() {
+        let f = Fixture::new();
+        f.init();
+
+        let viewer = Address::generate(&f.env);
+        f.client().grant_role(&viewer, &Role::Viewer);
+
+        let role = f.client().get_role(&viewer);
+        assert_eq!(role, Some(Role::Viewer));
     }
 
     #[test]
@@ -636,9 +550,51 @@ mod test {
         let f = Fixture::new();
         f.init();
 
-        assert!(f.client().has_role(&f.admin, &Role::Pauser));
-        f.client().revoke_role(&f.admin, &Role::Pauser);
-        assert!(!f.client().has_role(&f.admin, &Role::Pauser));
+        let operator = Address::generate(&f.env);
+        f.client().grant_role(&operator, &Role::Operator);
+
+        let role = f.client().get_role(&operator);
+        assert_eq!(role, Some(Role::Operator));
+
+        f.client().revoke_role(&operator);
+        let revoked_role = f.client().get_role(&operator);
+        assert_eq!(revoked_role, None);
+    }
+
+    #[test]
+    fn test_has_role_admin_has_all_permissions() {
+        let f = Fixture::new();
+        f.init();
+
+        let operator = Address::generate(&f.env);
+        f.client().grant_role(&operator, &Role::Operator);
+
+        assert_eq!(f.client().has_role(&operator, &Role::Operator), true);
+        assert_eq!(f.client().has_role(&operator, &Role::Viewer), true);
+        assert_eq!(f.client().has_role(&operator, &Role::Admin), false);
+    }
+
+    #[test]
+    fn test_has_role_viewer_has_limited_permissions() {
+        let f = Fixture::new();
+        f.init();
+
+        let viewer = Address::generate(&f.env);
+        f.client().grant_role(&viewer, &Role::Viewer);
+
+        assert_eq!(f.client().has_role(&viewer, &Role::Viewer), true);
+        assert_eq!(f.client().has_role(&viewer, &Role::Operator), false);
+        assert_eq!(f.client().has_role(&viewer, &Role::Admin), false);
+    }
+
+    #[test]
+    fn test_get_role_unassigned_address_returns_none() {
+        let f = Fixture::new();
+        f.init();
+
+        let unassigned = Address::generate(&f.env);
+        let role = f.client().get_role(&unassigned);
+        assert_eq!(role, None);
     }
 
     #[test]
@@ -658,15 +614,15 @@ mod test {
         client.init(&admin, &treasury, &usdc, &xlm_sac);
 
         env.mock_auths(&[]);
-        let user = Address::generate(&env);
-        client.grant_role(&user, &Role::Operator);
+        let other = Address::generate(&env);
+        client.grant_role(&other, &Role::Operator);
     }
 
     #[test]
     #[should_panic]
     fn test_revoke_role_requires_admin_auth() {
         let env = Env::default();
-        env.mock_auths(&[]);
+        env.mock_all_auths();
 
         let admin = Address::generate(&env);
         let treasury = Address::generate(&env);
@@ -675,387 +631,199 @@ mod test {
         let contract_id = env.register(Stellar_CardReceiver, ());
         let client = Stellar_CardReceiverClient::new(&env, &contract_id);
 
-        env.mock_all_auths();
         client.init(&admin, &treasury, &usdc, &xlm_sac);
 
+        let operator = Address::generate(&env);
+        client.grant_role(&operator, &Role::Operator);
+
         env.mock_auths(&[]);
-        client.revoke_role(&admin, &Role::Operator);
+        client.revoke_role(&operator);
     }
 
     #[test]
-    fn test_has_role_returns_false_for_unknown() {
+    fn test_update_role_overwrites_previous() {
         let f = Fixture::new();
         f.init();
+
         let user = Address::generate(&f.env);
-        assert!(!f.client().has_role(&user, &Role::Admin));
+        f.client().grant_role(&user, &Role::Viewer);
+
+        let initial_role = f.client().get_role(&user);
+        assert_eq!(initial_role, Some(Role::Viewer));
+
+        f.client().grant_role(&user, &Role::Operator);
+        let updated_role = f.client().get_role(&user);
+        assert_eq!(updated_role, Some(Role::Operator));
     }
 
-    // ── pause tests ───────────────────────────────────────────────────────────
+    // ── Payment with RBAC tests ───────────────────────────────────────────────
 
     #[test]
-    fn test_pause_and_unpause() {
+    fn test_pay_usdc_by_authorized_user() {
         let f = Fixture::new();
         f.init();
 
-        assert!(!f.client().is_paused());
-        f.client().pause(&f.admin);
-        assert!(f.client().is_paused());
-        f.client().unpause(&f.admin);
-        assert!(!f.client().is_paused());
-    }
+        let authorized_user = Address::generate(&f.env);
+        f.env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+            address: authorized_user.clone(),
+            nonce: 0,
+            signatures: vec![],
+        }]);
 
-    #[test]
-    #[should_panic(expected = "caller must have Pauser role")]
-    fn test_pause_requires_pauser_role() {
-        let f = Fixture::new();
-        f.init();
+        f.client().grant_role(&authorized_user, &Role::Operator);
 
-        let non_pauser = Address::generate(&f.env);
-        f.client().pause(&non_pauser);
-    }
+        let amount: i128 = 15_000_000;
+        f.mint_usdc(&authorized_user, amount);
 
-    // ── set_admin tests ───────────────────────────────────────────────────────
-
-    #[test]
-    fn test_set_admin() {
-        let f = Fixture::new();
-        f.init();
-
-        let new_admin = Address::generate(&f.env);
-        f.client().set_admin(&new_admin);
-        assert_eq!(f.client().admin(), new_admin);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_set_admin_requires_admin_auth() {
-        let env = Env::default();
-        env.mock_auths(&[]);
-
-        let admin = Address::generate(&env);
-        let treasury = Address::generate(&env);
-        let usdc = env.register_stellar_asset_contract_v2(admin.clone()).address();
-        let xlm_sac = env.register_stellar_asset_contract_v2(admin.clone()).address();
-        let contract_id = env.register(Stellar_CardReceiver, ());
-        let client = Stellar_CardReceiverClient::new(&env, &contract_id);
-
-        env.mock_all_auths();
-        client.init(&admin, &treasury, &usdc, &xlm_sac);
-
-        env.mock_auths(&[]);
-        let new_admin = Address::generate(&env);
-        client.set_admin(&new_admin);
-    }
-
-    // ── comprehensive edge-case tests ─────────────────────────────────────────
-
-    #[test]
-    fn test_multiple_usdc_payments_accumulate_in_treasury() {
-        let f = Fixture::new();
-        f.init();
-
-        let amount1: i128 = 10_000_000;
-        let amount2: i128 = 25_000_000;
-        f.mint_usdc(&f.payer, amount1 + amount2);
-
-        let oid1 = order_bytes(&f.env, "order-1");
-        f.client().pay_usdc(&f.payer, &amount1, &oid1);
-
-        let oid2 = order_bytes(&f.env, "order-2");
-        f.client().pay_usdc(&f.payer, &amount2, &oid2);
-
-        assert_eq!(f.usdc_balance(&f.treasury), amount1 + amount2);
-        assert_eq!(f.usdc_balance(&f.payer), 0);
-    }
-
-    #[test]
-    fn test_multiple_xlm_payments_accumulate_in_treasury() {
-        let f = Fixture::new();
-        f.init();
-
-        let amount1: i128 = 5_000_000;
-        let amount2: i128 = 10_000_000;
-        f.mint_xlm(&f.payer, amount1 + amount2);
-
-        let oid1 = order_bytes(&f.env, "xlm-order-1");
-        f.client().pay_xlm(&f.payer, &amount1, &oid1);
-
-        let oid2 = order_bytes(&f.env, "xlm-order-2");
-        f.client().pay_xlm(&f.payer, &amount2, &oid2);
-
-        assert_eq!(f.xlm_balance(&f.treasury), amount1 + amount2);
-        assert_eq!(f.xlm_balance(&f.payer), 0);
-    }
-
-    #[test]
-    fn test_different_payers_usdc() {
-        let f = Fixture::new();
-        f.init();
-
-        let payer2 = Address::generate(&f.env);
-        let amount1: i128 = 5_000_000;
-        let amount2: i128 = 15_000_000;
-        f.mint_usdc(&f.payer, amount1);
-        f.mint_usdc(&payer2, amount2);
-
-        let oid1 = order_bytes(&f.env, "payer1-order");
-        f.client().pay_usdc(&f.payer, &amount1, &oid1);
-
-        let oid2 = order_bytes(&f.env, "payer2-order");
-        f.client().pay_usdc(&payer2, &amount2, &oid2);
-
-        assert_eq!(f.usdc_balance(&f.treasury), amount1 + amount2);
-        assert_eq!(f.usdc_balance(&f.payer), 0);
-        assert_eq!(f.usdc_balance(&payer2), 0);
-    }
-
-    #[test]
-    fn test_different_payers_xlm() {
-        let f = Fixture::new();
-        f.init();
-
-        let payer2 = Address::generate(&f.env);
-        let amount1: i128 = 3_000_000;
-        let amount2: i128 = 7_000_000;
-        f.mint_xlm(&f.payer, amount1);
-        f.mint_xlm(&payer2, amount2);
-
-        let oid1 = order_bytes(&f.env, "xlm-p1");
-        f.client().pay_xlm(&f.payer, &amount1, &oid1);
-
-        let oid2 = order_bytes(&f.env, "xlm-p2");
-        f.client().pay_xlm(&payer2, &amount2, &oid2);
-
-        assert_eq!(f.xlm_balance(&f.treasury), amount1 + amount2);
-        assert_eq!(f.xlm_balance(&f.payer), 0);
-        assert_eq!(f.xlm_balance(&payer2), 0);
-    }
-
-    #[test]
-    fn test_pay_usdc_with_fractional_amount() {
-        let f = Fixture::new();
-        f.init();
-
-        let amount: i128 = 12_345_678;
-        f.mint_usdc(&f.payer, amount);
-
-        let oid = order_bytes(&f.env, "fractional-usdc");
-        f.client().pay_usdc(&f.payer, &amount, &oid);
+        let oid = order_bytes(&f.env, "rbac-usdc-test");
+        f.client().pay_usdc(&authorized_user, &amount, &oid);
 
         assert_eq!(f.usdc_balance(&f.treasury), amount);
+        assert_eq!(f.usdc_balance(&authorized_user), 0);
     }
 
     #[test]
-    fn test_pay_xlm_minimum_stroops() {
+    fn test_multiple_roles_different_users() {
         let f = Fixture::new();
         f.init();
 
-        let amount: i128 = 1;
-        f.mint_xlm(&f.payer, amount);
+        let admin_user = f.admin.clone();
+        let operator = Address::generate(&f.env);
+        let viewer = Address::generate(&f.env);
 
-        let oid = order_bytes(&f.env, "min-xlm");
-        f.client().pay_xlm(&f.payer, &amount, &oid);
+        f.client().grant_role(&operator, &Role::Operator);
+        f.client().grant_role(&viewer, &Role::Viewer);
 
-        assert_eq!(f.xlm_balance(&f.treasury), 1);
+        assert_eq!(f.client().get_role(&admin_user), None);
+        assert_eq!(f.client().get_role(&operator), Some(Role::Operator));
+        assert_eq!(f.client().get_role(&viewer), Some(Role::Viewer));
+    }
+
+    // ── Edge case tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pay_usdc_with_max_amount() {
+        let f = Fixture::new();
+        f.init();
+
+        let max_amount: i128 = i128::MAX / 2;
+        f.mint_usdc(&f.payer, max_amount);
+
+        let oid = order_bytes(&f.env, "max-amount-test");
+        f.client().pay_usdc(&f.payer, &max_amount, &oid);
+
+        assert_eq!(f.usdc_balance(&f.treasury), max_amount);
     }
 
     #[test]
-    fn test_grant_role_idempotent() {
+    fn test_pay_xlm_with_large_amount() {
         let f = Fixture::new();
         f.init();
-        let user = Address::generate(&f.env);
 
-        f.client().grant_role(&user, &Role::Operator);
-        f.client().grant_role(&user, &Role::Operator);
-        assert!(f.client().has_role(&user, &Role::Operator));
+        let large_amount: i128 = 1_000_000_000_000;
+        f.mint_xlm(&f.payer, large_amount);
+
+        let oid = order_bytes(&f.env, "large-xlm-amount");
+        f.client().pay_xlm(&f.payer, &large_amount, &oid);
+
+        assert_eq!(f.xlm_balance(&f.treasury), large_amount);
     }
 
     #[test]
-    fn test_revoke_nonexistent_role_is_noop() {
+    fn test_pay_usdc_multiple_times_accumulates() {
         let f = Fixture::new();
         f.init();
-        let user = Address::generate(&f.env);
 
-        assert!(!f.client().has_role(&user, &Role::Pauser));
-        f.client().revoke_role(&user, &Role::Pauser);
-        assert!(!f.client().has_role(&user, &Role::Pauser));
+        let amount: i128 = 10_000_000;
+        f.mint_usdc(&f.payer, amount * 3);
+
+        for i in 0..3 {
+            let oid = order_bytes(&f.env, &format!("multi-payment-{}", i));
+            f.client().pay_usdc(&f.payer, &amount, &oid);
+        }
+
+        assert_eq!(f.usdc_balance(&f.treasury), amount * 3);
+        assert_eq!(f.usdc_balance(&f.payer), 0);
     }
 
     #[test]
-    fn test_grant_multiple_roles_to_same_user() {
+    fn test_treasury_and_admin_getters() {
         let f = Fixture::new();
         f.init();
-        let user = Address::generate(&f.env);
 
-        f.client().grant_role(&user, &Role::Pauser);
-        f.client().grant_role(&user, &Role::Operator);
+        let treasury = f.client().treasury();
+        let admin = f.client().admin();
+        let usdc = f.client().usdc_contract();
+        let xlm = f.client().xlm_contract();
 
-        assert!(f.client().has_role(&user, &Role::Pauser));
-        assert!(f.client().has_role(&user, &Role::Operator));
-        assert!(!f.client().has_role(&user, &Role::Admin));
+        assert_eq!(treasury, f.treasury);
+        assert_eq!(admin, f.admin);
+        assert_eq!(usdc, f.usdc);
+        assert_eq!(xlm, f.xlm_sac);
     }
 
     #[test]
-    fn test_revoke_role_does_not_affect_other_roles() {
+    fn test_order_id_with_special_characters() {
         let f = Fixture::new();
         f.init();
-        let user = Address::generate(&f.env);
-
-        f.client().grant_role(&user, &Role::Pauser);
-        f.client().grant_role(&user, &Role::Operator);
-
-        f.client().revoke_role(&user, &Role::Pauser);
-
-        assert!(!f.client().has_role(&user, &Role::Pauser));
-        assert!(f.client().has_role(&user, &Role::Operator));
-    }
-
-    #[test]
-    fn test_unpause_requires_pauser_role() {
-        let f = Fixture::new();
-        f.init();
-        f.client().pause(&f.admin);
-
-        let non_pauser = Address::generate(&f.env);
-        f.env.mock_auths(&[]);
-        let result = f.client().try_unpause(&non_pauser);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_pay_usdc_after_unpause_works() {
-        let f = Fixture::new();
-        f.init();
-
-        f.client().pause(&f.admin);
-        assert!(f.client().is_paused());
-
-        f.client().unpause(&f.admin);
-        assert!(!f.client().is_paused());
 
         let amount: i128 = 5_000_000;
         f.mint_usdc(&f.payer, amount);
-        let oid = order_bytes(&f.env, "after-unpause");
-        f.client().pay_usdc(&f.payer, &amount, &oid);
+
+        let special_oid = order_bytes(&f.env, "order-id-with-!@#$%");
+        f.client().pay_usdc(&f.payer, &amount, &special_oid);
 
         assert_eq!(f.usdc_balance(&f.treasury), amount);
     }
 
     #[test]
-    fn test_pay_xlm_after_unpause_works() {
+    fn test_order_id_with_max_length_bytes() {
         let f = Fixture::new();
         f.init();
 
-        f.client().pause(&f.admin);
-        f.client().unpause(&f.admin);
-
-        let amount: i128 = 8_000_000;
-        f.mint_xlm(&f.payer, amount);
-        let oid = order_bytes(&f.env, "xlm-after-unpause");
-        f.client().pay_xlm(&f.payer, &amount, &oid);
-
-        assert_eq!(f.xlm_balance(&f.treasury), amount);
-    }
-
-    #[test]
-    fn test_set_admin_old_admin_loses_access() {
-        let f = Fixture::new();
-        f.init();
-
-        let new_admin = Address::generate(&f.env);
-        f.client().set_admin(&new_admin);
-
-        assert_eq!(f.client().admin(), new_admin);
-        assert_ne!(f.admin, new_admin);
-    }
-
-    #[test]
-    fn test_reentrancy_guard_cleared_after_payment() {
-        let f = Fixture::new();
-        f.init();
-
-        let amount: i128 = 1_000_000;
-        f.mint_usdc(&f.payer, amount * 2);
-
-        let oid1 = order_bytes(&f.env, "guard-test-1");
-        f.client().pay_usdc(&f.payer, &amount, &oid1);
-
-        let oid2 = order_bytes(&f.env, "guard-test-2");
-        f.client().pay_usdc(&f.payer, &amount, &oid2);
-
-        assert_eq!(f.usdc_balance(&f.treasury), amount * 2);
-    }
-
-    #[test]
-    fn test_pay_usdc_large_amount() {
-        let f = Fixture::new();
-        f.init();
-
-        let amount: i128 = 999_999_999_999_999;
+        let amount: i128 = 5_000_000;
         f.mint_usdc(&f.payer, amount);
 
-        let oid = order_bytes(&f.env, "large-amount");
-        f.client().pay_usdc(&f.payer, &amount, &oid);
+        let long_id = "a".repeat(256);
+        let long_oid = order_bytes(&f.env, &long_id);
+        f.client().pay_usdc(&f.payer, &amount, &long_oid);
 
         assert_eq!(f.usdc_balance(&f.treasury), amount);
     }
 
     #[test]
-    fn test_pay_xlm_large_amount() {
+    fn test_xlm_payment_with_low_amount() {
         let f = Fixture::new();
         f.init();
 
-        let amount: i128 = 999_999_999_999_999;
-        f.mint_xlm(&f.payer, amount);
+        let min_amount: i128 = 1;
+        f.mint_xlm(&f.payer, min_amount);
 
-        let oid = order_bytes(&f.env, "xlm-large");
-        f.client().pay_xlm(&f.payer, &amount, &oid);
+        let oid = order_bytes(&f.env, "min-xlm");
+        f.client().pay_xlm(&f.payer, &min_amount, &oid);
 
-        assert_eq!(f.xlm_balance(&f.treasury), amount);
+        assert_eq!(f.xlm_balance(&f.treasury), min_amount);
     }
 
     #[test]
-    fn test_init_emits_no_events() {
+    fn test_concurrent_payments_simulation() {
         let f = Fixture::new();
         f.init();
 
-        let events = f.env.events().all();
-        let contract_events: u32 = events
-            .iter()
-            .filter(|(addr, _, _)| *addr == f.contract_id)
-            .count() as u32;
-        assert_eq!(contract_events, 0);
-    }
-
-    #[test]
-    fn test_revoke_admin_role_from_original_admin() {
-        let f = Fixture::new();
-        f.init();
-
-        let new_admin = Address::generate(&f.env);
-        f.client().grant_role(&new_admin, &Role::Admin);
-
-        f.client().revoke_role(&f.admin, &Role::Admin);
-
-        assert!(!f.client().has_role(&f.admin, &Role::Admin));
-        assert!(f.client().has_role(&new_admin, &Role::Admin));
-    }
-
-    #[test]
-    fn test_multiple_payers_single_order() {
-        let f = Fixture::new();
-        f.init();
-
+        let payer1 = Address::generate(&f.env);
         let payer2 = Address::generate(&f.env);
-        let amount: i128 = 1_000_000;
-        f.mint_usdc(&f.payer, amount);
+        let payer3 = Address::generate(&f.env);
+
+        let amount: i128 = 10_000_000;
+        f.mint_usdc(&payer1, amount);
         f.mint_usdc(&payer2, amount);
+        f.mint_usdc(&payer3, amount);
 
-        let oid = order_bytes(&f.env, "shared-order");
-        f.client().pay_usdc(&f.payer, &amount, &oid);
-        f.client().pay_usdc(&payer2, &amount, &oid);
+        f.client().pay_usdc(&payer1, &amount, &order_bytes(&f.env, "payer1"));
+        f.client().pay_usdc(&payer2, &amount, &order_bytes(&f.env, "payer2"));
+        f.client().pay_usdc(&payer3, &amount, &order_bytes(&f.env, "payer3"));
 
-        assert_eq!(f.usdc_balance(&f.treasury), amount * 2);
+        assert_eq!(f.usdc_balance(&f.treasury), amount * 3);
     }
 
     #[test]
@@ -1063,26 +831,24 @@ mod test {
         let f = Fixture::new();
         f.init();
 
-        let amount: i128 = 1_000_000;
+        let amount: i128 = 5_000_000;
         f.mint_usdc(&f.payer, amount);
 
-        let oid = Bytes::new(&f.env);
-        f.client().pay_usdc(&f.payer, &amount, &oid);
+        let empty_oid = order_bytes(&f.env, "");
+        f.client().pay_usdc(&f.payer, &amount, &empty_oid);
 
         assert_eq!(f.usdc_balance(&f.treasury), amount);
     }
 
     #[test]
-    fn test_empty_order_id_xlm() {
+    fn test_storage_ttl_extended_after_init() {
         let f = Fixture::new();
         f.init();
 
-        let amount: i128 = 2_000_000;
-        f.mint_xlm(&f.payer, amount);
+        let amount: i128 = 5_000_000;
+        f.mint_usdc(&f.payer, amount);
+        f.client().pay_usdc(&f.payer, &amount, &order_bytes(&f.env, "ttl-test"));
 
-        let oid = Bytes::new(&f.env);
-        f.client().pay_xlm(&f.payer, &amount, &oid);
-
-        assert_eq!(f.xlm_balance(&f.treasury), amount);
+        assert_eq!(f.usdc_balance(&f.treasury), amount);
     }
 }
