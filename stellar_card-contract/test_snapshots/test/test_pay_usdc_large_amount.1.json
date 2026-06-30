@@ -86,7 +86,7 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 999999999999999
+                    "lo": 1000000000000
                   }
                 }
               ]
@@ -111,11 +111,11 @@
                 {
                   "i128": {
                     "hi": 0,
-                    "lo": 999999999999999
+                    "lo": 1000000000000
                   }
                 },
                 {
-                  "bytes": "6c617267652d616d6f756e74"
+                  "bytes": "6c617267652d75736463"
                 }
               ]
             }
@@ -136,7 +136,7 @@
                     {
                       "i128": {
                         "hi": 0,
-                        "lo": 999999999999999
+                        "lo": 1000000000000
                       }
                     }
                   ]
@@ -420,93 +420,12 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "Paused"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "bool": false
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
                               "symbol": "ReentrancyGuard"
                             }
                           ]
                         },
                         "val": {
-                          "u32": 0
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "Role"
-                            },
-                            {
-                              "vec": [
-                                {
-                                  "symbol": "Admin"
-                                }
-                              ]
-                            }
-                          ]
-                        },
-                        "val": {
-                          "vec": [
-                            {
-                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
-                            }
-                          ]
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "Role"
-                            },
-                            {
-                              "vec": [
-                                {
-                                  "symbol": "Operator"
-                                }
-                              ]
-                            }
-                          ]
-                        },
-                        "val": {
-                          "vec": [
-                            {
-                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
-                            }
-                          ]
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "Role"
-                            },
-                            {
-                              "vec": [
-                                {
-                                  "symbol": "Pauser"
-                                }
-                              ]
-                            }
-                          ]
-                        },
-                        "val": {
-                          "vec": [
-                            {
-                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
-                            }
-                          ]
+                          "bool": false
                         }
                       },
                       {
@@ -599,7 +518,7 @@
                       "val": {
                         "i128": {
                           "hi": 0,
-                          "lo": 999999999999999
+                          "lo": 1000000000000
                         }
                       }
                     },

@@ -1,8 +1,9 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Bytes, BytesN, Env, Map, Symbol};
+use soroban_sdk::{contract, contractimpl, contracterror, contracttype, token, Address, Bytes, BytesN, Env, Map, Symbol};
 
 #[contracttype]
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum Role {
     Admin,
     Operator,
@@ -16,6 +17,15 @@ pub enum DataKey {
     XlmContract,
     Admin,
     ReentrancyGuard,
+    Roles,
+}
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum Error {
+    InvalidAmount = 1,
+    TransferFailed = 2,
 }
 
 #[contract]
@@ -67,9 +77,9 @@ impl Stellar_CardReceiver {
 
     /// Transfer `amount` USDC (in micro-USDC, 7 d.p.) from `from` to treasury.
     /// Emits: topics=[Symbol("pay_usdc"), order_id, from], value=amount
-    pub fn pay_usdc(env: Env, from: Address, amount: i128, order_id: Bytes) {
+    pub fn pay_usdc(env: Env, from: Address, amount: i128, order_id: Bytes) -> Result<(), Error> {
         if amount <= 0 {
-            panic!("amount must be positive");
+            return Err(Error::InvalidAmount);
         }
         from.require_auth();
 
@@ -79,7 +89,11 @@ impl Stellar_CardReceiver {
         Self::_enter(&env);
 
         let token_client = token::Client::new(&env, &usdc_contract);
-        token_client.transfer(&from, &treasury, &amount);
+        let res = token_client.try_transfer(&from, &treasury, &amount);
+        if res.is_err() {
+            Self::_exit(&env);
+            return Err(Error::TransferFailed);
+        }
 
         Self::_exit(&env);
 
@@ -89,13 +103,14 @@ impl Stellar_CardReceiver {
         );
 
         env.storage().instance().extend_ttl(17_280_000, 17_280_000);
+        Ok(())
     }
 
     /// Transfer `amount` XLM (in stroops, 7 d.p.) from `from` to treasury.
     /// Emits: topics=[Symbol("pay_xlm"), order_id, from], value=amount
-    pub fn pay_xlm(env: Env, from: Address, amount: i128, order_id: Bytes) {
+    pub fn pay_xlm(env: Env, from: Address, amount: i128, order_id: Bytes) -> Result<(), Error> {
         if amount <= 0 {
-            panic!("amount must be positive");
+            return Err(Error::InvalidAmount);
         }
         from.require_auth();
 
@@ -105,7 +120,11 @@ impl Stellar_CardReceiver {
         Self::_enter(&env);
 
         let token_client = token::Client::new(&env, &xlm_contract);
-        token_client.transfer(&from, &treasury, &amount);
+        let res = token_client.try_transfer(&from, &treasury, &amount);
+        if res.is_err() {
+            Self::_exit(&env);
+            return Err(Error::TransferFailed);
+        }
 
         Self::_exit(&env);
 
@@ -115,6 +134,7 @@ impl Stellar_CardReceiver {
         );
 
         env.storage().instance().extend_ttl(17_280_000, 17_280_000);
+        Ok(())
     }
 
     /// Return the treasury address.
@@ -165,7 +185,7 @@ impl Stellar_CardReceiver {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
 
-        if let Ok(mut roles) = env.storage().instance().get::<_, Map<Address, Role>>(&DataKey::Roles) {
+        if let Some(mut roles) = env.storage().instance().get::<_, Map<Address, Role>>(&DataKey::Roles) {
             roles.remove(address);
             env.storage().instance().set(&DataKey::Roles, &roles);
             env.storage().instance().extend_ttl(17_280_000, 17_280_000);
@@ -174,8 +194,8 @@ impl Stellar_CardReceiver {
 
     /// Get the role of an address. Returns none if no role is assigned.
     pub fn get_role(env: Env, address: Address) -> Option<Role> {
-        if let Ok(roles) = env.storage().instance().get::<_, Map<Address, Role>>(&DataKey::Roles) {
-            roles.get(address).ok()
+        if let Some(roles) = env.storage().instance().get::<_, Map<Address, Role>>(&DataKey::Roles) {
+            roles.get(address)
         } else {
             None
         }
@@ -183,8 +203,8 @@ impl Stellar_CardReceiver {
 
     /// Check if an address has at least the specified role or higher.
     pub fn has_role(env: Env, address: Address, required_role: Role) -> bool {
-        if let Ok(roles) = env.storage().instance().get::<_, Map<Address, Role>>(&DataKey::Roles) {
-            if let Ok(user_role) = roles.get(address) {
+        if let Some(roles) = env.storage().instance().get::<_, Map<Address, Role>>(&DataKey::Roles) {
+            if let Some(user_role) = roles.get(address) {
                 return Self::is_role_sufficient(&user_role, &required_role);
             }
         }
@@ -452,39 +472,35 @@ mod test {
     // ── amount validation tests ───────────────────────────────────────────────
 
     #[test]
-    #[should_panic(expected = "amount must be positive")]
     fn test_pay_usdc_rejects_zero_amount() {
         let f = Fixture::new();
         f.init();
         let oid = order_bytes(&f.env, "zero-amount");
-        f.client().pay_usdc(&f.payer, &0_i128, &oid);
+        assert!(f.client().try_pay_usdc(&f.payer, &0_i128, &oid).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "amount must be positive")]
     fn test_pay_usdc_rejects_negative_amount() {
         let f = Fixture::new();
         f.init();
         let oid = order_bytes(&f.env, "neg-amount");
-        f.client().pay_usdc(&f.payer, &(-1_000_000_i128), &oid);
+        assert!(f.client().try_pay_usdc(&f.payer, &(-1_000_000_i128), &oid).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "amount must be positive")]
     fn test_pay_xlm_rejects_zero_amount() {
         let f = Fixture::new();
         f.init();
         let oid = order_bytes(&f.env, "xlm-zero");
-        f.client().pay_xlm(&f.payer, &0_i128, &oid);
+        assert!(f.client().try_pay_xlm(&f.payer, &0_i128, &oid).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "amount must be positive")]
     fn test_pay_xlm_rejects_negative_amount() {
         let f = Fixture::new();
         f.init();
         let oid = order_bytes(&f.env, "xlm-neg");
-        f.client().pay_xlm(&f.payer, &(-50_000_000_i128), &oid);
+        assert!(f.client().try_pay_xlm(&f.payer, &(-50_000_000_i128), &oid).is_err());
     }
 
     // ── upgrade tests ─────────────────────────────────────────────────────────
@@ -593,6 +609,50 @@ mod test {
         f.client().pay_xlm(&f.payer, &amount, &oid2);
 
         assert_eq!(f.xlm_balance(&f.treasury), amount * 2);
+    }
+
+    #[test]
+    fn test_reentrancy_guard_resets_after_failed_transfer() {
+        let f = Fixture::new();
+        f.init();
+
+        let amount: i128 = 10_000_000;
+        f.mint_usdc(&f.payer, amount / 2); // only half balance to cause a failure
+
+        let oid1 = order_bytes(&f.env, "failed-1");
+        let result = f.client().try_pay_usdc(&f.payer, &amount, &oid1);
+        assert!(result.is_err(), "should fail with insufficient balance");
+
+        // Now give sufficient balance
+        f.mint_usdc(&f.payer, amount);
+        
+        // Guard should have reset, so this should succeed
+        let oid2 = order_bytes(&f.env, "success-after-fail");
+        f.client().pay_usdc(&f.payer, &amount, &oid2);
+
+        assert_eq!(f.usdc_balance(&f.treasury), amount);
+    }
+
+    #[test]
+    fn test_reentrancy_guard_resets_for_xlm_after_failed_transfer() {
+        let f = Fixture::new();
+        f.init();
+
+        let amount: i128 = 5_000_000;
+        f.mint_xlm(&f.payer, amount / 2);
+
+        let oid1 = order_bytes(&f.env, "xlm-failed-1");
+        let result = f.client().try_pay_xlm(&f.payer, &amount, &oid1);
+        assert!(result.is_err(), "should fail with insufficient balance");
+
+        // Now give sufficient balance
+        f.mint_xlm(&f.payer, amount);
+        
+        // Guard should have reset, so this should succeed
+        let oid2 = order_bytes(&f.env, "xlm-success-after-fail");
+        f.client().pay_xlm(&f.payer, &amount, &oid2);
+
+        assert_eq!(f.xlm_balance(&f.treasury), amount);
     }
 
     // ── comprehensive edge-case tests ─────────────────────────────────────
@@ -850,5 +910,115 @@ mod test {
         assert_eq!(f.xlm_balance(&f.treasury), xlm_amount);
         assert_eq!(f.usdc_balance(&f.payer), 0);
         assert_eq!(f.xlm_balance(&f.payer), 0);
+    }
+    // ── role management tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_grant_role_works() {
+        let f = Fixture::new();
+        f.init();
+        
+        let user = Address::generate(&f.env);
+        assert_eq!(f.client().get_role(&user), None);
+        assert_eq!(f.client().has_role(&user, &Role::Viewer), false);
+        
+        f.client().grant_role(&user, &Role::Viewer);
+        
+        assert_eq!(f.client().get_role(&user), Some(Role::Viewer));
+        assert_eq!(f.client().has_role(&user, &Role::Viewer), true);
+        assert_eq!(f.client().has_role(&user, &Role::Operator), false);
+        assert_eq!(f.client().has_role(&user, &Role::Admin), false);
+        
+        f.client().grant_role(&user, &Role::Operator);
+        assert_eq!(f.client().get_role(&user), Some(Role::Operator));
+        assert_eq!(f.client().has_role(&user, &Role::Viewer), true);
+        assert_eq!(f.client().has_role(&user, &Role::Operator), true);
+        assert_eq!(f.client().has_role(&user, &Role::Admin), false);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_grant_role_requires_admin_auth() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let usdc = env.register_stellar_asset_contract_v2(admin.clone()).address();
+        let xlm_sac = env.register_stellar_asset_contract_v2(admin.clone()).address();
+        let contract_id = env.register(Stellar_CardReceiver, ());
+        let client = Stellar_CardReceiverClient::new(&env, &contract_id);
+        
+        client.init(&admin, &treasury, &usdc, &xlm_sac);
+        
+        let user = Address::generate(&env);
+        client.grant_role(&user, &Role::Viewer); // panics
+    }
+
+    #[test]
+    fn test_revoke_role_works() {
+        let f = Fixture::new();
+        f.init();
+        
+        let user = Address::generate(&f.env);
+        f.client().grant_role(&user, &Role::Operator);
+        assert_eq!(f.client().get_role(&user), Some(Role::Operator));
+        
+        f.client().revoke_role(&user);
+        assert_eq!(f.client().get_role(&user), None);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_revoke_role_requires_admin_auth() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let usdc = env.register_stellar_asset_contract_v2(admin.clone()).address();
+        let xlm_sac = env.register_stellar_asset_contract_v2(admin.clone()).address();
+        let contract_id = env.register(Stellar_CardReceiver, ());
+        let client = Stellar_CardReceiverClient::new(&env, &contract_id);
+        
+        client.init(&admin, &treasury, &usdc, &xlm_sac);
+        
+        let user = Address::generate(&env);
+        client.revoke_role(&user); // panics
+    }
+
+    #[test]
+    fn test_revoke_nonexistent_role_is_noop() {
+        let f = Fixture::new();
+        f.init();
+        
+        let user = Address::generate(&f.env);
+        f.client().revoke_role(&user);
+        assert_eq!(f.client().get_role(&user), None);
+    }
+
+    #[test]
+    fn test_has_role_hierarchy() {
+        let f = Fixture::new();
+        f.init();
+        
+        let admin_user = Address::generate(&f.env);
+        let operator_user = Address::generate(&f.env);
+        let viewer_user = Address::generate(&f.env);
+        
+        f.client().grant_role(&admin_user, &Role::Admin);
+        f.client().grant_role(&operator_user, &Role::Operator);
+        f.client().grant_role(&viewer_user, &Role::Viewer);
+        
+        // Admin has all roles
+        assert!(f.client().has_role(&admin_user, &Role::Viewer));
+        assert!(f.client().has_role(&admin_user, &Role::Operator));
+        assert!(f.client().has_role(&admin_user, &Role::Admin));
+        
+        // Operator has Operator and Viewer
+        assert!(f.client().has_role(&operator_user, &Role::Viewer));
+        assert!(f.client().has_role(&operator_user, &Role::Operator));
+        assert!(!f.client().has_role(&operator_user, &Role::Admin));
+        
+        // Viewer only has Viewer
+        assert!(f.client().has_role(&viewer_user, &Role::Viewer));
+        assert!(!f.client().has_role(&viewer_user, &Role::Operator));
+        assert!(!f.client().has_role(&viewer_user, &Role::Admin));
     }
 }
