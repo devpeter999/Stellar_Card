@@ -1,0 +1,5 @@
+/target
+/stellar_card-contract/target
+**/*.rs.bk
+*.wasm
+.DS_Store
