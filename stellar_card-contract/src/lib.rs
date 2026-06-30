@@ -16,6 +16,7 @@ pub enum DataKey {
     UsdcContract,
     XlmContract,
     Admin,
+    Roles,
     ReentrancyGuard,
     Roles,
 }
@@ -61,7 +62,9 @@ impl Stellar_CardReceiver {
         env.storage().instance().extend_ttl(17_280_000, 17_280_000);
     }
 
-    /// Acquire the reentrancy guard. Panics if already held.
+    /// Acquire the reentrancy guard before a state-changing transfer.
+    ///
+    /// Panics if the guard is already held, which indicates a reentrant call.
     fn _enter(env: &Env) {
         let key = DataKey::ReentrancyGuard;
         if env.storage().instance().get::<_, bool>(&key).unwrap_or(false) {
@@ -70,7 +73,7 @@ impl Stellar_CardReceiver {
         env.storage().instance().set(&key, &true);
     }
 
-    /// Release the reentrancy guard.
+    /// Release the reentrancy guard after a guarded operation completes.
     fn _exit(env: &Env) {
         env.storage().instance().set(&DataKey::ReentrancyGuard, &false);
     }
@@ -211,6 +214,7 @@ impl Stellar_CardReceiver {
         false
     }
 
+    /// Return whether `user_role` satisfies `required_role`.
     fn is_role_sufficient(user_role: &Role, required_role: &Role) -> bool {
         match (user_role, required_role) {
             (Role::Admin, _) => true,
