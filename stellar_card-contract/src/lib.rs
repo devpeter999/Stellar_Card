@@ -15,6 +15,7 @@ pub enum DataKey {
     UsdcContract,
     XlmContract,
     Admin,
+    Roles,
     ReentrancyGuard,
 }
 
@@ -51,7 +52,9 @@ impl Stellar_CardReceiver {
         env.storage().instance().extend_ttl(17_280_000, 17_280_000);
     }
 
-    /// Acquire the reentrancy guard. Panics if already held.
+    /// Acquire the reentrancy guard before a state-changing transfer.
+    ///
+    /// Panics if the guard is already held, which indicates a reentrant call.
     fn _enter(env: &Env) {
         let key = DataKey::ReentrancyGuard;
         if env.storage().instance().get::<_, bool>(&key).unwrap_or(false) {
@@ -60,7 +63,7 @@ impl Stellar_CardReceiver {
         env.storage().instance().set(&key, &true);
     }
 
-    /// Release the reentrancy guard.
+    /// Release the reentrancy guard after a guarded operation completes.
     fn _exit(env: &Env) {
         env.storage().instance().set(&DataKey::ReentrancyGuard, &false);
     }
@@ -165,7 +168,7 @@ impl Stellar_CardReceiver {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
 
-        if let Ok(mut roles) = env.storage().instance().get::<_, Map<Address, Role>>(&DataKey::Roles) {
+        if let Some(mut roles) = env.storage().instance().get::<_, Map<Address, Role>>(&DataKey::Roles) {
             roles.remove(address);
             env.storage().instance().set(&DataKey::Roles, &roles);
             env.storage().instance().extend_ttl(17_280_000, 17_280_000);
@@ -174,8 +177,8 @@ impl Stellar_CardReceiver {
 
     /// Get the role of an address. Returns none if no role is assigned.
     pub fn get_role(env: Env, address: Address) -> Option<Role> {
-        if let Ok(roles) = env.storage().instance().get::<_, Map<Address, Role>>(&DataKey::Roles) {
-            roles.get(address).ok()
+        if let Some(roles) = env.storage().instance().get::<_, Map<Address, Role>>(&DataKey::Roles) {
+            roles.get(address)
         } else {
             None
         }
@@ -183,14 +186,15 @@ impl Stellar_CardReceiver {
 
     /// Check if an address has at least the specified role or higher.
     pub fn has_role(env: Env, address: Address, required_role: Role) -> bool {
-        if let Ok(roles) = env.storage().instance().get::<_, Map<Address, Role>>(&DataKey::Roles) {
-            if let Ok(user_role) = roles.get(address) {
+        if let Some(roles) = env.storage().instance().get::<_, Map<Address, Role>>(&DataKey::Roles) {
+            if let Some(user_role) = roles.get(address) {
                 return Self::is_role_sufficient(&user_role, &required_role);
             }
         }
         false
     }
 
+    /// Return whether `user_role` satisfies `required_role`.
     fn is_role_sufficient(user_role: &Role, required_role: &Role) -> bool {
         match (user_role, required_role) {
             (Role::Admin, _) => true,
