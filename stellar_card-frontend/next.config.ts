@@ -45,6 +45,7 @@ const nextConfig: NextConfig = {
   // optimizePackageImports rewrites named imports from large packages into
   // per-module requires so unused exports are tree-shaken at the module
   // boundary rather than requiring explicit paths everywhere in app code.
+  // See docs/PERFORMANCE.md for detailed optimization strategies.
   experimental: {
     optimizePackageImports: ['geist', 'next/font/google'],
   },
